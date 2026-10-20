@@ -1404,8 +1404,16 @@ class TextHighlighter:
         self.text = text
         self.doc = doc
         self.cur = None
-        # Tk 8.6 counts a character outside the BMP (an emoji) as two; Python as one
+        # Tk 8.6 counts a character outside the BMP (an emoji) as two; Python (and Tk 9) as one.
+        # Measure rather than assume: if Tk's count matches Python's, no correction is needed.
         self._astral = [k for k, ch in enumerate(doc.text) if ord(ch) > 0xFFFF]
+        if self._astral:
+            try:
+                tk_chars = int(self.text.tk.call(self.text._w, "count", "-chars", "1.0", "end-1c"))
+                if tk_chars == len(doc.text):
+                    self._astral = []
+            except Exception:
+                pass
         self.text.tag_configure("ra_sent")
         self.text.tag_configure("ra_word")
         self.text.tag_raise("ra_sent")
@@ -1615,6 +1623,7 @@ class ReadBar:
         self.lbl_status.pack(side="left", padx=(12, 0))
 
         self._rsvp_packed = False
+        self.last_ui_error = ""
         self.rsvp = RsvpView(rsvp_parent or parent, app.palette, app.ui)
         self._fill_voices()
         self._speed_moved(None)
@@ -1818,9 +1827,18 @@ class ReadBar:
                          f"parent: {fr.winfo_parent()}  canvas: {self.rsvp.canvas.winfo_width()}x{self.rsvp.canvas.winfo_height()}")
         except Exception as e:
             lines.append(f"panel: {e!r}")
+        try:
+            cv = self.rsvp.canvas
+            texts = [cv.itemcget(i, "text") for i in cv.find_all() if cv.type(i) == "text"]
+            lines.append(f"panel word: {self.rsvp.word!r}  items drawn: {len(cv.find_all())}  texts: {texts[:4]}  "
+                         f"font: {self.rsvp.font.actual('family')} {self.rsvp.font.actual('size')}  colours: text {self.rsvp.c['text']} on {cv['bg']}")
+        except Exception as e:
+            lines.append(f"panel drawing: {e!r}")
         lines.append(f"mode: {self.mode}  cursor: {self.cursor}  last word: {self._last_word}  reader state: {self.reader.state}")
         if self.reader.error:
             lines.append("last error: " + self.reader.error)
+        if self.last_ui_error:
+            lines.append("last ui error: " + self.last_ui_error[-600:])
         return "\n".join(lines)
 
     def set_status(self, text):
@@ -1954,10 +1972,25 @@ class ReadBar:
             return
         self._last_word = i
         self.cursor = i
-        self.on_word(i)
+        # neither painter may kill the clock: log and carry on
+        try:
+            self.on_word(i)
+        except Exception:
+            self._ui_error("highlight")
         if self.var_rsvp.get() and self.doc is not None and i is not None:
-            w = self.doc.words[i]
-            self.rsvp.show(w.clean or w.text, f"{i + 1} / {len(self.doc.words)}")
+            try:
+                w = self.doc.words[i]
+                self.rsvp.show(w.clean or w.text, f"{i + 1} / {len(self.doc.words)}")
+            except Exception:
+                self._ui_error("rsvp")
+
+    def _ui_error(self, where):
+        import traceback
+        self.last_ui_error = f"{where}: " + traceback.format_exc()
+        try:
+            self.app.log("read aloud ui error in " + self.last_ui_error)
+        except Exception:
+            pass
 
     def _start_clock(self):
         if self._clock_job:

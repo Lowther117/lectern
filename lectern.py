@@ -208,23 +208,41 @@ class Document:
         self.path = path
         self.kind = kind
         self.title = os.path.splitext(os.path.basename(path))[0] if path else ""
-        self.text = ""
+        self._parts = []        # the text is built as pieces and joined on demand - a 30,000-paragraph
+        self._len = 0           # book must not copy a growing string on every paragraph
+        self._text = ""
         self.blocks = []        # [(start, end, style)]
         self.toc = []           # [(level, title, char offset)]
         self.pages = []         # PDF only
         self.notes = []         # things worth telling the user (no text layer...)
 
     # building
+    @property
+    def text(self):
+        if len(self._parts) > 1:
+            self._parts = ["".join(self._parts)]
+        return self._parts[0] if self._parts else ""
+
+    @text.setter
+    def text(self, value):
+        self._parts = [value] if value else []
+        self._len = len(value)
+
     def add_block(self, text, style="p"):
         text = re.sub(r"[ \t\r\f\v]+", " ", text.replace("\n", " ")).strip()
         if not text:
             return None
-        if self.text:
-            self.text += "\n"
-        start = len(self.text)
-        self.text += text
-        self.blocks.append((start, len(self.text), style))
+        if self._len:
+            self._parts.append("\n")
+            self._len += 1
+        start = self._len
+        self._parts.append(text)
+        self._len += len(text)
+        self.blocks.append((start, self._len, style))
         return start
+
+    def __len__(self):
+        return self._len
 
     def add_heading(self, text, level):
         start = self.add_block(text, f"h{min(3, max(1, level))}")
@@ -610,7 +628,7 @@ def load_pdf(path):
             rect = page.rect
             pg = Page(pno, rect.width, rect.height)
             rot = page.rotation_matrix if getattr(page, "rotation", 0) else None
-            pg.start = len(d.text) + (1 if d.text else 0)
+            pg.start = len(d) + (1 if len(d) else 0)
             for lvl, title in toc_pages.get(pno, []):
                 d.toc.append((lvl, title.strip()[:120], pg.start))
             words = page.get_text("words")      # x0, y0, x1, y1, word, block, line, wordno
@@ -659,7 +677,7 @@ def load_pdf(path):
                 para.append(w)
                 pending.append([r])
             flush_block()
-            pg.end = len(d.text)
+            pg.end = len(d)
             d.pages.append(pg)
         if empty_pages and empty_pages == len(pdf):
             d.notes.append("This PDF has no text layer (scanned pages). Run it through an OCR tool first "

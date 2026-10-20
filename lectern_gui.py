@@ -51,6 +51,7 @@ class App:
         self._after = []
         self._loading = False
         self.palette = theme.apply(root, theme.from_settings(self.s))
+        root.report_callback_exception = self._tk_error      # windowed builds have no stderr: log it instead
         root.title(core.APP_NAME)
         try:
             root.geometry(self.s.get("window") or "1240x820")
@@ -92,6 +93,15 @@ class App:
         try:
             core.save_settings(self.s)
         except OSError:
+            pass
+
+    def _tk_error(self, exc, val, tb):
+        import traceback
+        text = "".join(traceback.format_exception(exc, val, tb))
+        self.log("ui error: " + text)
+        try:
+            self.status(f"Error: {val} (details in lectern.log)")
+        except Exception:
             pass
 
     def status(self, text):
@@ -186,17 +196,20 @@ class App:
         self.ent_find.bind("<Escape>", lambda e: self.root.focus_set())
         ttk.Label(top, text="Find", style="Dim.TLabel").pack(side="right", padx=(0, 4))
 
-        # read-aloud strip; the RSVP panel lives in a holder above whichever
-        # view is showing (an empty holder takes no room)
-        self.body = ttk.Frame(r)
-        self.rsvp_holder = ttk.Frame(self.body)
+        # The paned window and its two panes. Panes MUST be created as children
+        # of the paned window: a frame made on the root and handed to pan.add()
+        # is laid out but stacked underneath the paned window, i.e. invisible.
+        pan = ttk.Panedwindow(r, orient="horizontal")
+        self.body = ttk.Frame(pan)
+        self.rsvp_holder = ttk.Frame(self.body)      # the RSVP panel sits here, above whichever view is showing
         self.rsvp_holder.pack(fill="x")
+
+        # read-aloud strip (packed before the paned window so it sits above it)
         self.readbar = readaloud.ReadBar(r, self, get_doc=self._rdoc, on_word=self._on_word, on_end=self._on_end,
                                          rsvp_parent=self.rsvp_holder)
         self.readbar.pack(fill="x")
         self.readbar.rsvp.set_size(int(self.s.get("rsvp_font") or 30))
 
-        pan = ttk.Panedwindow(r, orient="horizontal")
         pan.pack(fill="both", expand=True, padx=10, pady=(0, 4))
         left = ttk.Frame(pan)
         pan.add(left, weight=1)
