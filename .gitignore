@@ -1,0 +1,13 @@
+.venv*/
+build/
+dist/
+*.spec
+build-win-log.txt
+build-mac-log.txt
+lectern-selftest.txt
+lectern-crash.log
+lectern.json
+lectern.log
+__pycache__/
+*.pyc
+.DS_Store
