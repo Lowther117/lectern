@@ -143,6 +143,8 @@ class App:
 
         h = tk.Menu(m, tearoff=0)
         h.add_command(label="Keys and how it works   F1", command=self.show_help)
+        h.add_command(label="Read-aloud diagnostics", command=lambda: messagebox.showinfo(
+            core.APP_NAME + " - read-aloud diagnostics", self.readbar.diagnostics(), parent=self.root))
         h.add_command(label="Open voice model folder", command=lambda: _open_path(readaloud.models_dir()))
         h.add_command(label="Open log file", command=lambda: _open_path(os.path.join(core.HERE, core.LOG_FILE)))
         h.add_command(label="About", command=lambda: messagebox.showinfo(

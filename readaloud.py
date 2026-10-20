@@ -1487,7 +1487,7 @@ class RsvpView:
         tk, ttk, tkfont = _tk()
         self.tk = tk
         self.frame = ttk.Frame(parent)
-        self.canvas = tk.Canvas(self.frame, height=height, highlightthickness=0, bd=0)
+        self.canvas = tk.Canvas(self.frame, height=height, highlightthickness=1, bd=0)
         self.canvas.pack(fill="x", expand=True)
         self.font = tkfont.Font(family=ui_family, size=30, weight="bold")
         self.small = tkfont.Font(family=ui_family, size=10)
@@ -1499,7 +1499,7 @@ class RsvpView:
 
     def apply_palette(self, c):
         self.c = c
-        self.canvas.configure(bg=c["sidebar"])
+        self.canvas.configure(bg=c["sidebar"], highlightbackground=c["border"], highlightcolor=c["border"])
         self.redraw()
 
     def set_size(self, size):
@@ -1528,6 +1528,8 @@ class RsvpView:
         w = self.word
         if not w:
             cv.create_text(px, mid, text="RSVP", fill=c["dim"], font=self.font, anchor="center")
+            cv.create_text(px, mid + 34, text="words flash here once you press Read - each pinned on its recognition letter",
+                           fill=c["dim"], font=self.small, anchor="center")
             return
         k = orp_index(w)
         left, piv, right = w[:k], w[k], w[k + 1:]
@@ -1571,7 +1573,11 @@ class ReadBar:
         self._last_word = None
         self.rsvp_before = rsvp_before
 
-        self.frame = f = ttk.Frame(parent, padding=(10, 2, 10, 6))
+        self.frame = outer = ttk.Frame(parent, padding=(10, 2, 10, 4))
+        f = ttk.Frame(outer)                 # row 1: transport, voice, speed
+        f.pack(fill="x")
+        f2 = ttk.Frame(outer)                # row 2: audio / RSVP / WPM / status
+        f2.pack(fill="x", pady=(4, 0))
         self.btn_play = ttk.Button(f, text="▶ Read", width=9, command=self.toggle)
         self.btn_play.pack(side="left")
         ttk.Button(f, text="■", width=3, command=self.stop).pack(side="left", padx=(4, 0))
@@ -1593,20 +1599,22 @@ class ReadBar:
         self.scl_speed.bind("<ButtonRelease-1>", lambda e: self._speed_set())
 
         self.var_audio = tk.BooleanVar(value=bool(self.s.get("tts_audio", True)))
-        ttk.Checkbutton(f, text="Audio", variable=self.var_audio, command=self._audio_toggled).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(f2, text="Audio (off = silent speed-reading on the WPM clock)", variable=self.var_audio,
+                        command=self._audio_toggled).pack(side="left")
         self.var_rsvp = tk.BooleanVar(value=bool(self.s.get("rsvp_show", False)))
-        ttk.Checkbutton(f, text="RSVP", variable=self.var_rsvp, command=self._rsvp_toggled).pack(side="left", padx=(6, 0))
+        ttk.Checkbutton(f2, text="RSVP panel", variable=self.var_rsvp, command=self._rsvp_toggled).pack(side="left", padx=(14, 0))
 
-        ttk.Label(f, text="WPM", style="Dim.TLabel").pack(side="left", padx=(12, 4))
+        ttk.Label(f2, text="WPM", style="Dim.TLabel").pack(side="left", padx=(14, 4))
         self.var_wpm = tk.IntVar(value=int(self.s.get("rsvp_wpm") or 350))
-        self.scl_wpm = ttk.Scale(f, from_=100, to=1000, variable=self.var_wpm, length=110, command=self._wpm_moved)
+        self.scl_wpm = ttk.Scale(f2, from_=100, to=1000, variable=self.var_wpm, length=140, command=self._wpm_moved)
         self.scl_wpm.pack(side="left")
-        self.lbl_wpm = ttk.Label(f, text="", width=5)
+        self.lbl_wpm = ttk.Label(f2, text="", width=5)
         self.lbl_wpm.pack(side="left")
 
-        self.lbl_status = ttk.Label(f, text="", style="Dim.TLabel")
+        self.lbl_status = ttk.Label(f2, text="", style="Dim.TLabel")
         self.lbl_status.pack(side="left", padx=(12, 0))
 
+        self._rsvp_packed = False
         self.rsvp = RsvpView(rsvp_parent or parent, app.palette, app.ui)
         self._fill_voices()
         self._speed_moved(None)
@@ -1787,11 +1795,33 @@ class ReadBar:
         self.scl_speed.state(["!disabled"] if audio else ["disabled"])
         self.scl_wpm.state(["disabled"] if audio else ["!disabled"])
         if self.var_rsvp.get():
-            if not self.rsvp.frame.winfo_ismapped():
+            if not self._rsvp_packed:
                 kw = {"before": self.rsvp_before} if self.rsvp_before is not None else {}
-                self.rsvp.frame.pack(fill="x", padx=10, pady=(0, 6), **kw)
-        else:
+                self.rsvp.frame.pack(side="top", fill="x", padx=10, pady=(0, 6), **kw)
+                self._rsvp_packed = True
+                self.rsvp.redraw()
+        elif self._rsvp_packed:
             self.rsvp.frame.pack_forget()
+            self._rsvp_packed = False
+
+    def diagnostics(self):
+        """One text block for a Help menu: what is installed and what is showing."""
+        lines = [f"readaloud {VERSION}", f"models folder: {models_dir()}", f"kokoro release wanted: {kokoro_release()}",
+                 f"kokoro files on disk: {kokoro_files_on_disk()}  matching: {kokoro_models_present()}"]
+        for k, (ok, why) in engine_status().items():
+            lines.append(f"engine {k}: {'available' if ok else 'not available - ' + why}")
+        lines.append(f"voice setting: {self.s.get('tts_voice')!r} -> using {self.reader.voice()}")
+        lines.append(f"audio: {self.var_audio.get()}  rsvp checkbox: {self.var_rsvp.get()}  panel packed: {self._rsvp_packed}")
+        try:
+            fr = self.rsvp.frame
+            lines.append(f"panel mapped: {bool(fr.winfo_ismapped())}  size: {fr.winfo_width()}x{fr.winfo_height()}  "
+                         f"parent: {fr.winfo_parent()}  canvas: {self.rsvp.canvas.winfo_width()}x{self.rsvp.canvas.winfo_height()}")
+        except Exception as e:
+            lines.append(f"panel: {e!r}")
+        lines.append(f"mode: {self.mode}  cursor: {self.cursor}  last word: {self._last_word}  reader state: {self.reader.state}")
+        if self.reader.error:
+            lines.append("last error: " + self.reader.error)
+        return "\n".join(lines)
 
     def set_status(self, text):
         self.lbl_status.configure(text=text)
