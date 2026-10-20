@@ -14,7 +14,8 @@ import sys
 # dictionaries, onnxruntime's DLLs, certifi's bundle); a plain hidden-import
 # is enough for single-module packages.
 OPTIONAL = [
-    ("miniaudio", "--hidden-import miniaudio"),
+    # miniaudio's compiled half is a cffi module that imports _cffi_backend at C level - invisible to PyInstaller
+    ("miniaudio", "--hidden-import miniaudio --hidden-import _miniaudio --hidden-import _cffi_backend --collect-all cffi"),
     ("kokoro_onnx", "--collect-all kokoro_onnx"),
     ("onnxruntime", "--collect-all onnxruntime"),
     ("espeakng_loader", "--collect-all espeakng_loader"),
@@ -29,8 +30,7 @@ OPTIONAL = [
     ("certifi", "--collect-all certifi"),
     ("tabulate", "--hidden-import tabulate"),
     ("curl_cffi", "--collect-all curl_cffi"),
-    ("pymupdf", "--collect-all pymupdf"),
-    ("fitz", "--hidden-import fitz"),
+    ("pymupdf", "--collect-all pymupdf --hidden-import fitz"),
 ]
 
 

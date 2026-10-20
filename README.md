@@ -1,7 +1,8 @@
 # Lectern
 
-A reader built to get you through a document fast. Open a PDF, Word file,
-EPUB, web page, Markdown or text file and Lectern reads it out loud with
+A reader built to get you through a document fast. Open a PDF, Word,
+PowerPoint or Excel file (new or old), an OpenDocument, EPUB, MOBI, e-mail,
+web page, Markdown or text file and Lectern reads it out loud with
 each word lit up as it is spoken, flashes it one word at a time (RSVP -
 Rapid Serial Visual Presentation) at whatever words-per-minute you like, or
 does both at once from the same clock. For PDFs it works on the page itself,
@@ -26,7 +27,7 @@ to the .app.
 
 1. **Open** a document (button, Ctrl+O, File > Open recent, or pass the file
    on the command line / drop it on `run.bat`). Where you were in it is
-   remembered.
+   remembered. The full list of formats is at the end.
 2. The **Contents** pane lists headings (Word, EPUB, HTML, Markdown), the
    outline or pages (PDF); click one to jump.
 3. **▶ Read** starts from the top, or from any word you click. While it is
@@ -89,20 +90,39 @@ online voices' MP3); without it, one `winsound`/`afplay` call per sentence.
 
 ## What it opens
 
+Files are recognised by their first bytes as well as their name, so a PDF
+called `.txt` or a `.docx` called `.doc` still opens. Everything is read in
+plain Python except PDFs (PyMuPDF).
+
 | Kind | How |
 |---|---|
-| `.pdf` | PyMuPDF: text in reading order with every word's box; hyphenated line breaks are re-joined; outline -> Contents. A scanned PDF with no text layer gets a warning (run it through the OCR PDF Converter first). |
-| `.docx` | The document XML directly (no Word, no python-docx): paragraphs, heading styles -> Contents, lists, tables (one row per line), tracked insertions kept and deletions dropped, content controls. |
+| `.pdf` | PyMuPDF: text in reading order with every word's box; hyphenated line breaks re-joined; outline -> Contents; rotated pages handled. A scanned PDF with no text layer gets a warning (run it through the OCR PDF Converter first). |
+| `.docx` `.docm` `.dotx` `.dotm` | The document XML directly: paragraphs, heading styles -> Contents, lists, tables (one row per line), tracked insertions kept and deletions dropped, content controls. |
+| `.doc` (Word 97-2003) | The binary format through its piece table: text, tables, field results (not field codes), Word 6/95 fallback. |
+| `.rtf` | Own parser: text, `\'hh` and `\uN` escapes, tables, with font/colour/style tables and pictures skipped. |
+| `.odt` `.ods` `.odp` `.fodt` `.fodp` | OpenDocument content.xml: headings -> Contents, lists, table rows, slides. |
+| `.pptx` `.pptm` `.potx` `.ppsx` | Slides in presentation order, each titled from its title placeholder, body text as paragraphs. |
+| `.ppt` (PowerPoint 97-2003) | Text atoms out of the binary stream, grouped by slide. |
+| `.xlsx` `.xlsm` `.xltx` | Visible sheets, one line per row, cells separated by `\|`; shared and inline strings, numbers, booleans. |
+| `.xls` (Excel 97-2003) | BIFF8: shared strings, numbers, RK/MULRK, labels, cached formula results. |
+| `.csv` `.tsv` | One line per row; the delimiter is sniffed. |
 | `.epub` | Spine order, headings -> Contents. |
+| `.mobi` `.prc` `.azw` `.azw3` | PalmDOC or uncompressed text records -> HTML -> blocks. DRM'd books and HUFF/CDIC compression are reported, not read (convert with Calibre). |
+| `.fb2` | Sections and titles -> Contents, paragraphs, verse. |
+| `.eml` | From / To / Date / Subject lines, then the plain-text body (or the HTML body when that is all there is), attachment names listed. |
+| `.msg` (Outlook) | Subject, from, to, cc and body out of the property streams; attachment names listed. |
+| `.srt` `.vtt` `.sbv` | Cue numbers, timings and tags dropped; cues joined back into paragraphs. |
 | `.html` `.htm` `.xhtml` | Block structure, scripts and styles skipped. |
 | `.md` `.markdown` | Headings, lists, quotes, code fences; inline marks stripped. |
-| `.txt` | Paragraphs by blank line; UTF-8, UTF-16 or Windows-1252. |
+| `.txt` and anything else that is text | Paragraphs by blank line; UTF-8, UTF-16 or Windows-1252. Code and data files (`.json` `.xml` `.yaml` `.ini` `.log` `.py` `.js` `.sh` ...) are shown line by line in a monospace face. |
+| Everything else | If LibreOffice is installed it converts the file first (WordPerfect, Works, StarOffice, old templates...); otherwise Lectern says so. |
 
 ## Layout
 
 | File | Purpose |
 |---|---|
-| `lectern.py` | Core: document loaders, PDF word boxes and page rendering, settings, recent files, self-test |
+| `lectern.py` | Core: Document model, PDF / DOCX / EPUB / HTML / Markdown / text loaders, PDF word boxes and page rendering, settings, recent files, self-test |
+| `formats.py` | The rest of the formats: a CFB/OLE reader for .doc .xls .ppt .msg, RTF, OpenDocument, .pptx/.xlsx, CSV, e-mail, subtitles, MOBI, FB2, magic-byte sniffing, LibreOffice fallback |
 | `lectern_gui.py` | The window: contents pane, text view, page view, find |
 | `lectern_app.py` | Entry point (`selftest` sub-mode, crash log) |
 | `readaloud.py` | Shared read-aloud module (identical copy in Hayloft): tokenizer, voice engines, word clock, highlighter, RSVP panel, control strip |

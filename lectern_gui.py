@@ -168,7 +168,7 @@ class App:
         top = ttk.Frame(r, padding=(10, 8, 10, 4))
         top.pack(fill="x")
         ttk.Button(top, text="Open…", style="Accent.TButton", command=self.open_dialog).pack(side="left")
-        self.lbl_title = ttk.Label(top, text="Open a PDF, Word document, EPUB, HTML, Markdown or text file", style="Dim.TLabel")
+        self.lbl_title = ttk.Label(top, text="Open a PDF, Word, PowerPoint, Excel, OpenDocument, EPUB/MOBI, e-mail, web, Markdown or text file", style="Dim.TLabel")
         self.lbl_title.pack(side="left", padx=12)
         self.btn_theme = ttk.Button(top, text="Theme", command=self._cycle_theme)
         self.btn_theme.pack(side="right")
@@ -340,9 +340,12 @@ class App:
         p = filedialog.askopenfilename(
             title="Open a document", parent=self.root,
             initialdir=os.path.dirname(self.doc.path) if self.doc else core.default_save_dir(self.s),
-            filetypes=[("Documents", "*.pdf *.docx *.epub *.html *.htm *.xhtml *.md *.markdown *.txt"),
-                       ("PDF", "*.pdf"), ("Word", "*.docx"), ("EPUB", "*.epub"), ("Web page", "*.html *.htm *.xhtml"),
-                       ("Markdown / text", "*.md *.markdown *.txt"), ("All files", "*.*")])
+            filetypes=[("All documents", " ".join("*" + e for e in core.SUPPORTED)),
+                       ("PDF", "*.pdf"), ("Word", "*.docx *.docm *.dotx *.doc *.rtf *.odt"),
+                       ("Presentations", "*.pptx *.ppt *.odp"), ("Spreadsheets", "*.xlsx *.xls *.ods *.csv *.tsv"),
+                       ("E-books", "*.epub *.mobi *.azw *.azw3 *.fb2"), ("E-mail", "*.eml *.msg"),
+                       ("Web / Markdown / text", "*.html *.htm *.xhtml *.md *.markdown *.txt *.srt *.vtt"),
+                       ("All files", "*.*")])
         if p:
             self.open_path(p)
 

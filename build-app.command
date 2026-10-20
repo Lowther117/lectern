@@ -98,7 +98,7 @@ fi
 echo "[4/6] Building dist/$APP.app..."
 rm -rf "dist/$APP.app" "dist/$APP"
 "$VPY" -m PyInstaller --noconfirm --clean --windowed --name "$APP" \
-    --hidden-import lectern --hidden-import lectern_gui --hidden-import theme --hidden-import readaloud \
+    --hidden-import lectern --hidden-import lectern_gui --hidden-import formats --hidden-import theme --hidden-import readaloud \
     --hidden-import tkinter --hidden-import tkinter.ttk --hidden-import tkinter.font \
     --hidden-import zipfile --hidden-import xml.etree.ElementTree --hidden-import html.parser $EXTRA \
     --osx-bundle-identifier uk.lowther.lectern \

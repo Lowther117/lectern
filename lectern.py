@@ -33,7 +33,9 @@ APP_NAME = "Lectern"
 VERSION = "1.0.0"
 SETTINGS_FILE = "lectern.json"
 LOG_FILE = "lectern.log"
-SUPPORTED = (".pdf", ".docx", ".epub", ".txt", ".md", ".markdown", ".html", ".htm", ".xhtml")
+SUPPORTED = (".pdf", ".docx", ".docm", ".dotx", ".doc", ".rtf", ".odt", ".fodt", ".epub", ".mobi", ".azw", ".azw3", ".fb2",
+             ".pptx", ".ppt", ".odp", ".xlsx", ".xls", ".ods", ".csv", ".tsv", ".eml", ".msg", ".srt", ".vtt",
+             ".txt", ".md", ".markdown", ".html", ".htm", ".xhtml", ".json", ".xml", ".log")
 
 
 # ------------------------------------------------------------------ folders
@@ -255,20 +257,10 @@ class Document:
 
 
 def load_document(path):
-    ext = os.path.splitext(path)[1].lower()
-    if ext == ".pdf":
-        return load_pdf(path)
-    if ext == ".docx":
-        return load_docx(path)
-    if ext == ".epub":
-        return load_epub(path)
-    if ext in (".html", ".htm", ".xhtml"):
-        return load_html(path)
-    if ext in (".md", ".markdown"):
-        return load_markdown(path)
-    if ext == ".txt" or ext == "":
-        return load_text(path)
-    raise ValueError(f"Lectern does not open {ext or 'that kind of'} files (PDF, DOCX, EPUB, HTML, Markdown, text)")
+    """Open anything: formats.open_any sniffs the first bytes, then falls back
+    to the extension, and calls the loaders here or in formats.py."""
+    import formats
+    return formats.open_any(path)
 
 
 # ---------------------------------------------------------------- text / md
@@ -823,6 +815,10 @@ def selftest(with_gui=True):
         else:
             lines.append("  [info] PyMuPDF not installed - PDF checks skipped")
 
+        # the long tail of formats
+        import formats
+        formats.selftest_checks(check, tmp)
+
         # the shared reading module
         import readaloud
         for k, (okk, why) in readaloud.selftest_checks(check).items():
@@ -846,8 +842,10 @@ def selftest(with_gui=True):
                 for name in theme.ORDER:
                     app.set_theme(name)
                 app.open_path(dp)
-                check("gui: docx opens, text view, toc rows", app.doc is not None and app.view == "text" and len(app.toc_tree.get_children()) == 3,
-                      f"{app.view} {len(app.toc_tree.get_children())}")
+                def _count(parent=""):
+                    return sum(1 + _count(c) for c in app.toc_tree.get_children(parent))
+                check("gui: docx opens, text view, toc rows (Heading 2 nested)", app.doc is not None and app.view == "text"
+                      and len(app.toc_tree.get_children()) == 2 and _count() == 3, f"{app.view} {_count()}")
                 app.readbar.var_audio.set(False)
                 app.readbar.var_rsvp.set(True)
                 app.readbar._rsvp_toggled()

@@ -566,8 +566,8 @@ class EdgeEngine(Engine):
             return False, f"edge-tts is not installed ({e.__class__.__name__})"
         try:
             import miniaudio  # noqa: F401
-        except Exception:
-            return False, "miniaudio is not installed (needed to decode the audio)"
+        except Exception as e:
+            return False, f"miniaudio could not be imported ({e.__class__.__name__}: {e}) - needed to decode the audio"
         return True, ""
 
     def _cache_path(self):

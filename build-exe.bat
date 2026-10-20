@@ -55,7 +55,7 @@ echo       fetching the Kokoro voice files (about 140 MB, once, into %%LOCALAPPD
 echo [4/5] Building dist\%APP%.exe...
 if exist "dist\%APP%.exe" del /q "dist\%APP%.exe"
 "%VPY%" -m PyInstaller --noconfirm --clean --onefile --windowed --name "%APP%" ^
-  --hidden-import lectern --hidden-import lectern_gui --hidden-import theme --hidden-import readaloud ^
+  --hidden-import lectern --hidden-import lectern_gui --hidden-import formats --hidden-import theme --hidden-import readaloud ^
   --hidden-import tkinter --hidden-import tkinter.ttk --hidden-import tkinter.font ^
   --hidden-import zipfile --hidden-import xml.etree.ElementTree --hidden-import html.parser %EXTRA% ^
   lectern_app.py >> "%LOG%" 2>&1 || goto :fail
