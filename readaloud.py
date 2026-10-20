@@ -48,11 +48,27 @@ import wave
 SAMPLE_RATE = 24000
 VERSION = "1.0.0"
 
-KOKORO_FILES = {
-    "kokoro-v1.0.int8.onnx": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.int8.onnx",
-    "voices-v1.0.bin": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin",
-}
+# Two sets of model files exist and they are NOT interchangeable: the
+# "model-files-v1.0" release matches kokoro-onnx 0.4.x (the last version that
+# installs on Python 3.14), "model-files-v1.1" matches kokoro-onnx 0.5+. The
+# wrong pair fails every sentence with "expected float, got int32".
+KOKORO_FILE_NAMES = ("kokoro-v1.0.int8.onnx", "voices-v1.0.bin")
 KOKORO_MB = 140
+
+
+def kokoro_release():
+    """Which GitHub release the installed kokoro-onnx wants."""
+    try:
+        from importlib.metadata import version
+        v = tuple(int(x) for x in version("kokoro-onnx").split(".")[:2])
+    except Exception:
+        v = (0, 4)
+    return "model-files-v1.0" if v < (0, 5) else "model-files-v1.1"
+
+
+def kokoro_files():
+    rel = kokoro_release()
+    return {n: f"https://github.com/thewh1teagle/kokoro-onnx/releases/download/{rel}/{n}" for n in KOKORO_FILE_NAMES}
 
 # Kokoro v1.0 voice ids: first letter = language, second = f/m
 KOKORO_LANG = {"a": "en-us", "b": "en-gb", "e": "es", "f": "fr-fr", "h": "hi", "i": "it",
@@ -96,11 +112,26 @@ def models_dir():
 
 def kokoro_paths():
     d = models_dir()
-    return [os.path.join(d, n) for n in KOKORO_FILES]
+    return [os.path.join(d, n) for n in KOKORO_FILE_NAMES]
+
+
+def _release_marker():
+    return os.path.join(models_dir(), "kokoro-release.txt")
+
+
+def kokoro_files_on_disk():
+    return all(os.path.isfile(p) and os.path.getsize(p) > 1_000_000 for p in kokoro_paths())
 
 
 def kokoro_models_present():
-    return all(os.path.isfile(p) and os.path.getsize(p) > 1_000_000 for p in kokoro_paths())
+    """The files are there AND they are the set the installed kokoro-onnx wants."""
+    if not kokoro_files_on_disk():
+        return False
+    try:
+        with open(_release_marker(), encoding="utf-8") as fh:
+            return fh.read().strip() == kokoro_release()
+    except OSError:
+        return False
 
 
 def download_kokoro_models(progress=None, cancel=None):
@@ -108,9 +139,16 @@ def download_kokoro_models(progress=None, cancel=None):
     name) is called as bytes arrive; cancel() returning True aborts."""
     d = models_dir()
     os.makedirs(d, exist_ok=True)
+    files = kokoro_files()
+    if not kokoro_models_present():
+        for p in kokoro_paths():            # a mismatched set from another kokoro-onnx version: start again
+            try:
+                os.remove(p)
+            except OSError:
+                pass
     total = 0
     sizes = {}
-    for name, url in KOKORO_FILES.items():
+    for name, url in files.items():
         req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "ReadAloud/" + VERSION})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
@@ -119,7 +157,7 @@ def download_kokoro_models(progress=None, cancel=None):
             sizes[name] = 0
         total += sizes[name]
     done = 0
-    for name, url in KOKORO_FILES.items():
+    for name, url in files.items():
         dest = os.path.join(d, name)
         if os.path.isfile(dest) and sizes.get(name) and os.path.getsize(dest) == sizes[name]:
             done += sizes[name]
@@ -140,6 +178,8 @@ def download_kokoro_models(progress=None, cancel=None):
                 if progress:
                     progress(done, total, name)
         os.replace(part, dest)
+    with open(_release_marker(), "w", encoding="utf-8") as fh:
+        fh.write(kokoro_release())
     return kokoro_models_present()
 
 
@@ -497,6 +537,8 @@ class KokoroEngine(Engine):
         except Exception as e:
             return False, f"kokoro-onnx is not installed ({e.__class__.__name__})"
         if not kokoro_models_present():
+            if kokoro_files_on_disk():
+                return False, "model files on disk are for a different kokoro-onnx version - re-download from the Voice list"
             return False, "model files not downloaded"
         return True, ""
 
@@ -524,14 +566,22 @@ class KokoroEngine(Engine):
         if _KOKORO["model"] is None:
             from kokoro_onnx import Kokoro
             m, v = kokoro_paths()
-            _KOKORO["model"] = Kokoro(m, v)
+            k = Kokoro(m, v)
+            try:                                  # a one-word warm-up catches a model/package mismatch at once
+                k.create("Hello.", voice="bf_emma", speed=1.0, lang="en-gb")
+            except Exception as e:
+                if "data type" in str(e) or "INVALID_ARGUMENT" in str(e):
+                    raise RuntimeError("Kokoro model files do not match the installed kokoro-onnx - choose "
+                                       "'Download Kokoro offline voices' in the Voice list to fetch the right set") from e
+                raise
+            _KOKORO["model"] = k
         return _KOKORO["model"]
 
     def synth(self, words, text, voice, speed):
         with self._lock:
             k = self._load()
             lang = KOKORO_LANG.get(voice[:1], "en-us")
-            spd = max(0.5, min(3.0, float(speed)))
+            spd = max(0.5, min(2.0, float(speed)))       # the package asserts 0.5..2.0
             try:
                 samples, rate = k.create(text, voice=voice, speed=spd, lang=lang)
             except TypeError:
@@ -1604,7 +1654,8 @@ class ReadBar:
             try:
                 import kokoro_onnx  # noqa: F401
                 items.append(("_kokoro_download", ""))
-                labels.append(f"Download Kokoro offline voices ({KOKORO_MB} MB)…")
+                labels.append(f"Download Kokoro offline voices ({KOKORO_MB} MB)…" if not kokoro_files_on_disk()
+                              else f"Re-download Kokoro voices for this version ({KOKORO_MB} MB)…")
             except Exception:
                 pass
         if status["edge"][0]:
@@ -1697,6 +1748,8 @@ class ReadBar:
         v = round(self.var_speed.get(), 2)
         self.reader.set_speed(v)
         self.app.save_settings()
+        if v > 2.0 and self.reader.voice()[0] == "kokoro":
+            self.set_status("Kokoro tops out at 2× (the online and system voices go to 3×)")
 
     def _wpm_moved(self, _):
         v = int(self.var_wpm.get())
