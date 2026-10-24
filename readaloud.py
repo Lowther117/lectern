@@ -1094,6 +1094,10 @@ class _ProcessOut:
                 elapsed = time.monotonic() - self._started
                 self.tl.frame = min(nframes, int(elapsed * SAMPLE_RATE))
                 if elapsed >= nframes / SAMPLE_RATE + 0.02:
+                    try:
+                        os.remove(os.path.join(self._tmp, f"p{self.tl.cur}.wav"))   # one WAV per sentence otherwise piles up until close
+                    except OSError:
+                        pass
                     self._clips.pop(self.tl.cur, None)
                     self.tl.cur += 1
                     self.tl.frame = 0
@@ -1231,16 +1235,18 @@ class Reader:
         self._wake.set()
 
     def pause(self):
-        if self.state in ("playing", "buffering", "loading"):
-            self.state = "paused"
-            if self._out:
-                self._out.set_paused(True)
+        with self._lock:            # the synth thread moves loading -> playing under this lock
+            if self.state in ("playing", "buffering", "loading"):
+                self.state = "paused"
+                if self._out:
+                    self._out.set_paused(True)
 
     def resume(self):
-        if self.state == "paused":
-            self.state = "playing"
-            if self._out:
-                self._out.set_paused(False)
+        with self._lock:
+            if self.state == "paused":
+                self.state = "playing"
+                if self._out:
+                    self._out.set_paused(False)
 
     def toggle(self):
         if self.state == "paused":
@@ -1305,18 +1311,21 @@ class Reader:
                 idx = clip.first + k
             else:
                 break
-        if done and sent >= len(self.doc.sentences) - 1 and self._next >= len(self.doc.sentences):
-            self.state = "done"
-            self._cursor = s.last
-            return self._cursor, "done"
-        if self.state == "paused":
-            pass
-        elif done:
-            self.state = "buffering"
-        else:
-            self.state = "playing"
-        self._cursor = idx
-        return idx, self.state
+        with self._lock:
+            if self.state in ("idle", "error"):     # the synth thread failed since the check above: keep its error
+                return None, self.state
+            if done and sent >= len(self.doc.sentences) - 1 and self._next >= len(self.doc.sentences):
+                self.state = "done"
+                self._cursor = s.last
+                return self._cursor, "done"
+            if self.state == "paused":
+                pass
+            elif done:
+                self.state = "buffering"
+            else:
+                self.state = "playing"
+            self._cursor = idx
+            return idx, self.state
 
     def close(self):
         self.stop()
@@ -1351,9 +1360,10 @@ class Reader:
                     sent = doc.sentences[nxt]
                     eng_id, vid = self.voice()
                     speed = self.speed()
+                    frm, start_word = self._from, self._start_word     # same snapshot as doc/nxt: a play() now cannot mix runs
                 first = sent.first
-                if nxt == self._from and self._start_word > sent.first:
-                    first = self._start_word          # clicked mid-sentence: speak from that word
+                if nxt == frm and start_word > sent.first:
+                    first = start_word          # clicked mid-sentence: speak from that word
                 words = doc.words[first:sent.last + 1]
                 text = _speakable(doc.text[words[0].start:sent.end])
                 try:
@@ -1665,8 +1675,13 @@ class ReadBar:
                 # ask the OS on a thread; the strip refills when the list arrives
                 def fetch(eng=eng):
                     eng.voices(fetch=True)
-                    self.app.root.after(0, self._fill_voices)
-                threading.Thread(target=fetch, daemon=True).start()
+
+                def refill():
+                    if SystemEngine._cache is not None:
+                        self._fill_voices()
+                t = threading.Thread(target=fetch, daemon=True)
+                t.start()
+                self._after_thread(t, refill)
             for vid, lab in (eng.voices(fetch=False) if eid == "system" else eng.voices()):
                 items.append((eid, vid))
                 labels.append(f"{ENGINES[eid].label.split(' (')[0]}: {lab}")
@@ -1718,17 +1733,17 @@ class ReadBar:
             self._fill_voices()
             return
         self.set_status("Downloading Kokoro voices…")
-        prog = {"done": 0, "total": 0}
+        prog = {"done": 0, "total": 0, "err": None}
 
         def cb(done, total, name):
             prog["done"], prog["total"] = done, total
 
-        def work():
+        def work():                 # never touches Tk: tick() picks up the result
             try:
                 download_kokoro_models(cb)
-                self.app.root.after(0, finish, "")
+                prog["err"] = ""
             except Exception as e:
-                self.app.root.after(0, finish, str(e))
+                prog["err"] = str(e)
 
         def finish(err):
             if err:
@@ -1744,6 +1759,8 @@ class ReadBar:
                 self.set_status(f"Downloading Kokoro voices… {prog['done'] // 1048576} / {prog['total'] // 1048576} MB")
             if t.is_alive():
                 self.app.root.after(300, tick)
+            elif prog["err"] is not None:
+                finish(prog["err"])
 
         t = threading.Thread(target=work, daemon=True)
         t.start()
@@ -1751,16 +1768,33 @@ class ReadBar:
 
     def _refresh_edge(self):
         self.set_status("Fetching voice list…")
+        res = {}
 
-        def work():
+        def work():                 # never touches Tk: done() runs on the Tk thread
             try:
                 n = self.reader.engine("edge").refresh_voices()
-                self.app.root.after(0, lambda: (self.set_status(f"{n} online voices"), self._fill_voices()))
+                res["msg"] = f"{n} online voices"
             except Exception as e:
-                msg = "Voice list: " + str(e)        # `e` is unbound once the except block ends
-                self.app.root.after(0, lambda: (self.set_status(msg), self._fill_voices()))
+                res["msg"] = "Voice list: " + str(e)
 
-        threading.Thread(target=work, daemon=True).start()
+        def done():
+            if "msg" in res:
+                self.set_status(res["msg"])
+                self._fill_voices()
+
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+        self._after_thread(t, done)
+
+    def _after_thread(self, t, fn):
+        """Run fn() on the Tk thread once worker thread t has finished
+        (worker threads never call into Tk themselves)."""
+        def poll():
+            if t.is_alive():
+                self.app.root.after(100, poll)
+            else:
+                fn()
+        self.app.root.after(100, poll)
 
     def _speed_moved(self, _):
         self.lbl_speed.configure(text=f"{self.var_speed.get():.2g}×")

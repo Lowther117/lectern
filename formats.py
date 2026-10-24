@@ -291,7 +291,8 @@ def rtf_to_text(raw):
                 pending_skip -= cut
             if t:
                 out.append(t.decode(codepage, errors="replace"))
-    return "".join(out)
+    # \uN escapes write characters outside the BMP (emoji) as two surrogates: pair them up
+    return "".join(out).encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
 def load_rtf(path):
@@ -1091,7 +1092,7 @@ def _palmdoc_decompress(data):
             dist = (w >> 3) & 0x7FF
             length = (w & 7) + 3
             for _ in range(length):
-                out.append(out[-dist] if dist <= len(out) else 32)
+                out.append(out[-dist] if 0 < dist <= len(out) else 32)      # dist 0 is invalid (out[-0] is out[0])
         else:
             out += b" " + bytes([c ^ 0x80])
     return bytes(out)
@@ -1138,13 +1139,14 @@ def load_mobi(path):
             if f & 1 and bit > 1:
                 size = 0
                 shift = 0
-                for j in range(1, 5):
+                for j in range(1, min(4, len(rec)) + 1):      # a short or empty record has fewer bytes to read
                     b = rec[-j]
                     size |= (b & 0x7F) << shift
                     shift += 7
                     if b & 0x80:
                         break
-                rec = rec[:-size] if size < len(rec) else b""
+                if size:                                       # rec[:-0] would wipe the record
+                    rec = rec[:-size] if size < len(rec) else b""
             f >>= 1
             bit <<= 1
         if trailing & 1:

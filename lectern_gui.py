@@ -31,6 +31,15 @@ def _open_path(path):
         messagebox.showerror(core.APP_NAME, f"Could not open {path}\n{e}")
 
 
+def _lower_same_len(s):
+    """s.lower() with every character kept one character long, so offsets into
+    the result are offsets into s ("İ".lower() is two characters: left as is)."""
+    low = s.lower()
+    if len(low) == len(s):
+        return low
+    return "".join(ch.lower() if len(ch.lower()) == 1 else ch for ch in s)
+
+
 class App:
     def __init__(self, root, settings=None, autostart=True, open_file=None):
         self.root = root
@@ -681,10 +690,10 @@ class App:
             self.text.see(self.hl._idx(off))
 
     def find(self, direction=1):
-        q = self.var_find.get().strip().lower()
+        q = _lower_same_len(self.var_find.get().strip())
         if not q or not self.rdoc or not self.rdoc.words:
             return
-        text = self.doc.text.lower()
+        text = _lower_same_len(self.doc.text)
         cur = self.rdoc.words[self.readbar.cursor]
         if direction > 0:
             pos = text.find(q, cur.end)

@@ -25,6 +25,7 @@ import shutil
 import sys
 import tempfile
 import time
+import urllib.parse
 import zipfile
 from html.parser import HTMLParser
 from xml.etree import ElementTree as ET
@@ -472,7 +473,9 @@ def load_epub(path):
             full = (base + "/" + href if base else href).split("#")[0]
             full = os.path.normpath(full).replace("\\", "/")
             if full not in names:
-                continue
+                full = urllib.parse.unquote(full)      # hrefs are URLs: "Chapter%201.xhtml" is the file "Chapter 1.xhtml"
+                if full not in names:
+                    continue
             if "html" not in mt and not full.lower().endswith((".xhtml", ".html", ".htm")):
                 continue
             try:
@@ -558,16 +561,34 @@ def load_docx(path):
         else:
             d.add_block(text, style)
 
+    def under(el, tag):
+        # el.iter(tag) without going into nested tables (those are read on their own)
+        for ch in el:
+            if ch.tag == _W + "tbl":
+                continue
+            if ch.tag == tag:
+                yield ch
+            yield from under(ch, tag)
+
+    def nested_tables(el):
+        for ch in el:
+            if ch.tag == _W + "tbl":
+                yield ch
+            else:
+                yield from nested_tables(ch)
+
     def do_table(tbl):
-        for tr in tbl.iter(_W + "tr"):
+        for tr in under(tbl, _W + "tr"):
             cells = []
             for tc in tr.findall(_W + "tc"):
-                ct = " ".join(_docx_para_text(p) for p in tc.iter(_W + "p"))
+                ct = " ".join(_docx_para_text(p) for p in under(tc, _W + "p"))
                 ct = re.sub(r"\s+", " ", ct).strip()
                 if ct:
                     cells.append(ct)
             if cells:
                 d.add_block(" | ".join(cells), "p")
+            for sub in nested_tables(tr):      # a table inside a cell: its rows follow, once
+                do_table(sub)
 
     def do_sdt(el):
         # every paragraph / table at any depth, but not again inside one already read
