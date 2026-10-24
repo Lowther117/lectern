@@ -19,6 +19,7 @@ resort for whatever is left (WordPerfect, Works, StarOffice...).
 """
 from __future__ import annotations
 
+import bisect
 import csv
 import email
 import email.policy
@@ -367,6 +368,13 @@ def load_odf(path, flat=False):
         elif el.tag == _T + "p":
             d.add_block(_odf_text(el), "p")
 
+    sheet = []
+
+    def is_sheet():     # _spreadsheet(root) scans the whole tree: once per document, not once per table
+        if not sheet:
+            sheet.append(_spreadsheet(root))
+        return sheet[0]
+
     # walk in document order but do not descend into an element we already emitted
     def walk(el):
         for ch in el:
@@ -375,7 +383,7 @@ def load_odf(path, flat=False):
                 continue
             if ch.tag == _TB + "table":
                 name = ch.get(_TB + "name")
-                if name and root.tag.endswith("document-content") and _spreadsheet(root):
+                if name and root.tag.endswith("document-content") and is_sheet():
                     d.add_heading(name, 2)
             walk(ch)
     walk(body)
@@ -840,7 +848,8 @@ def _biff_unicode(data, pos, cch, segs=None):
     left = cch
     while left > 0:
         if segs:
-            nxt = next((b for b in segs if b > pos), None)
+            k = bisect.bisect_right(segs, pos)          # segs is ascending: the first boundary past pos
+            nxt = segs[k] if k < len(segs) else None
             room = (nxt - pos) if nxt is not None else len(data) - pos
         else:
             room = len(data) - pos

@@ -678,7 +678,7 @@ class App:
         i = self.rdoc.word_at_char(off)
         self.readbar.set_cursor(i)
         if self.view == "text":
-            self.text.see(f"1.0+{off}c")
+            self.text.see(self.hl._idx(off))
 
     def find(self, direction=1):
         q = self.var_find.get().strip().lower()
@@ -700,7 +700,7 @@ class App:
         i = self.rdoc.word_at_char(pos)
         self.readbar.set_cursor(i, restart=False)
         if self.view == "text":
-            self.text.see(f"1.0+{pos}c")
+            self.text.see(self.hl._idx(pos))
         self.status(f"Found at word {i + 1:,}")
 
     def _estimate(self, i=None):

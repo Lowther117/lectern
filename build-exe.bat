@@ -70,7 +70,7 @@ if exist "dist\lectern-selftest.txt" (
     type "dist\lectern-selftest.txt" >> "%LOG%"
     findstr /C:"RESULT: OK" "dist\lectern-selftest.txt" >nul && set "RC=0"
 ) else (
-    echo (no selftest output written)
+    echo ^(no selftest output written^)
 )
 echo.
 if not "%RC%"=="0" (

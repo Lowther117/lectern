@@ -1480,7 +1480,10 @@ class TextHighlighter:
         line = max(1, min(line, len(lines)))
         start = sum(len(lines[k]) + 1 for k in range(line - 1))
         cur = lines[line - 1]
-        # Tk's column counts a character outside the BMP as two; walk back to Python's count
+        if not self._astral:
+            # Tk's count matches Python's (no astral chars, or Tk 9): the column is the offset
+            return self.doc.word_at_char(start + min(col, len(cur)))
+        # Tk 8.6's column counts a character outside the BMP as two; walk back to Python's count
         py = seen = 0
         while seen < col and py < len(cur):
             seen += 2 if ord(cur[py]) > 0xFFFF else 1
@@ -1660,7 +1663,7 @@ class ReadBar:
             eng = self.reader.engine(eid)
             if eid == "system" and SystemEngine._cache is None:
                 # ask the OS on a thread; the strip refills when the list arrives
-                def fetch():
+                def fetch(eng=eng):
                     eng.voices(fetch=True)
                     self.app.root.after(0, self._fill_voices)
                 threading.Thread(target=fetch, daemon=True).start()
@@ -1754,7 +1757,8 @@ class ReadBar:
                 n = self.reader.engine("edge").refresh_voices()
                 self.app.root.after(0, lambda: (self.set_status(f"{n} online voices"), self._fill_voices()))
             except Exception as e:
-                self.app.root.after(0, lambda: (self.set_status("Voice list: " + str(e)), self._fill_voices()))
+                msg = "Voice list: " + str(e)        # `e` is unbound once the except block ends
+                self.app.root.after(0, lambda: (self.set_status(msg), self._fill_voices()))
 
         threading.Thread(target=work, daemon=True).start()
 

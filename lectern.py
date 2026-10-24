@@ -569,17 +569,23 @@ def load_docx(path):
             if cells:
                 d.add_block(" | ".join(cells), "p")
 
+    def do_sdt(el):
+        # every paragraph / table at any depth, but not again inside one already read
+        for sub in el:
+            if sub.tag == _W + "p":
+                do_para(sub)
+            elif sub.tag == _W + "tbl":
+                do_table(sub)
+            else:
+                do_sdt(sub)
+
     for el in body:
         if el.tag == _W + "p":
             do_para(el)
         elif el.tag == _W + "tbl":
             do_table(el)
         elif el.tag == _W + "sdt":          # content controls wrap paragraphs
-            for sub in el.iter():
-                if sub.tag == _W + "p":
-                    do_para(sub)
-                elif sub.tag == _W + "tbl":
-                    do_table(sub)
+            do_sdt(el)
     return d
 
 
