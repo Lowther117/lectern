@@ -82,10 +82,12 @@ KOKORO_DEFAULT_VOICES = ["bf_emma", "bf_isabella", "bf_alice", "bf_lily",
                          "af_heart", "af_bella", "af_sarah", "af_nicole", "af_sky"]
 EDGE_DEFAULT_VOICES = [
     ("en-GB-SoniaNeural", "Sonia", "en-GB", "Female"), ("en-GB-LibbyNeural", "Libby", "en-GB", "Female"),
-    ("en-GB-MaisieNeural", "Maisie", "en-GB", "Female"), ("en-US-AriaNeural", "Aria", "en-US", "Female"),
+    ("en-US-AriaNeural", "Aria", "en-US", "Female"),
     ("en-US-JennyNeural", "Jenny", "en-US", "Female"), ("en-US-EmmaNeural", "Emma", "en-US", "Female"),
     ("en-US-AvaNeural", "Ava", "en-US", "Female"), ("en-US-MichelleNeural", "Michelle", "en-US", "Female"),
 ]
+# Microsoft's child voices - the voice list reports no age, so they are named here and never offered.
+EDGE_CHILD_VOICES = {"en-GB-MaisieNeural", "en-US-AnaNeural"}
 # macOS `say` does not report a voice's sex, so it is asked of the system (_MAC_VOICES_JXA); these
 # names are the fallback if that fails. Novelty voices (sound effects, singing) are never offered.
 MAC_FEMALE_VOICES = {"Samantha", "Allison", "Ava", "Susan", "Vicki", "Victoria", "Kathy", "Zoe", "Nicky",
@@ -678,7 +680,7 @@ class EdgeEngine(Engine):
             for v in data:
                 sn = v.get("ShortName", "")
                 loc = v.get("Locale", "")
-                if not sn or loc not in VOICE_LOCALES or v.get("Gender") != "Female":
+                if not sn or loc not in VOICE_LOCALES or v.get("Gender") != "Female" or sn in EDGE_CHILD_VOICES:
                     continue
                 name = sn.split("-")[-1].replace("Neural", "")
                 out.append((sn, f"{name} ({loc} female)"))

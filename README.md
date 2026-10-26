@@ -32,7 +32,7 @@ to the .app.
    outline or pages (PDF); click one to jump.
 3. **▶ Read** starts from the top, or from any word you click. While it is
    reading, clicking a word jumps there. ■ stops; ⏮ ⏭ step a sentence.
-4. **Voice** - everything installed is listed, female UK and US English
+4. **Voice** - everything installed is listed, adult female UK and US English
    voices only (a voice saved before that falls back to the engine's default):
    *Kokoro* - offline neural voices, the best sounding, British and American.
    `kokoro-onnx` (Python 3.10-3.13) plus ~140 MB of model files in
