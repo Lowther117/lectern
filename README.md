@@ -32,7 +32,8 @@ to the .app.
    outline or pages (PDF); click one to jump.
 3. **▶ Read** starts from the top, or from any word you click. While it is
    reading, clicking a word jumps there. ■ stops; ⏮ ⏭ step a sentence.
-4. **Voice** - everything installed is listed:
+4. **Voice** - everything installed is listed, female UK and US English
+   voices only (a voice saved before that falls back to the engine's default):
    *Kokoro* - offline neural voices, the best sounding, British and American.
    `kokoro-onnx` (Python 3.10-3.13) plus ~140 MB of model files in
    `%LOCALAPPDATA%\ReadAloud\models` / `~/Library/Application
@@ -40,9 +41,9 @@ to the .app.
    them, and the Voice list offers the download if they are missing.
    *Online* - Microsoft's neural voices through `edge-tts`; needs the
    internet, gives exact word timing. *Fetch the full online voice list…*
-   adds the other 300-odd voices.
+   adds any newer female en-GB / en-US ones.
    *System* - Windows SAPI voices or macOS `say` voices. Always there.
-5. **Speed** 0.5×-3× of the voice's natural rate.
+5. **Speed** 0.5×-3× of the voice's natural rate (online voices top out at 2×).
 6. **Audio** off turns the same controls into a silent speed-reader: the
    highlight and the RSVP panel run on their own clock at **WPM**
    (100-1000). That is how RSVP goes past what speech can do.
@@ -84,8 +85,8 @@ longer dwell on long words, numbers, commas and sentence ends.
 
 The online voices report exact word boundaries. Kokoro and the system
 voices give sentence-exact clips with the words inside placed by phoneme
-count (Kokoro) or letter count, which lands within about a tenth of a
-second. Sound goes through `miniaudio` when installed (it also decodes the
+count (Kokoro) or letter count across the audible part of the clip, which
+lands within about a tenth of a second. Sound goes through `miniaudio` when installed (it also decodes the
 online voices' MP3); without it, one `winsound`/`afplay` call per sentence.
 
 ## What it opens

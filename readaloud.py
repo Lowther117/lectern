@@ -75,18 +75,25 @@ KOKORO_LANG = {"a": "en-us", "b": "en-gb", "e": "es", "f": "fr-fr", "h": "hi", "
                "j": "ja", "p": "pt-br", "z": "cmn"}
 KOKORO_LANG_LABEL = {"a": "American", "b": "British", "e": "Spanish", "f": "French", "h": "Hindi",
                      "i": "Italian", "j": "Japanese", "p": "Portuguese", "z": "Mandarin"}
-KOKORO_DEFAULT_VOICES = ["bf_emma", "bf_isabella", "bf_alice", "bf_lily", "bm_george", "bm_lewis", "bm_daniel",
-                         "bm_fable", "af_heart", "af_bella", "af_sarah", "af_nicole", "af_sky", "am_michael",
-                         "am_adam", "am_eric", "am_liam"]
+# Voice policy: only female voices speaking UK or US English are offered, by every engine.
+VOICE_LOCALES = ("en-GB", "en-US")
+KOKORO_VOICE_PREFIXES = ("bf", "af")      # b = British, a = American; f = female
+KOKORO_DEFAULT_VOICES = ["bf_emma", "bf_isabella", "bf_alice", "bf_lily",
+                         "af_heart", "af_bella", "af_sarah", "af_nicole", "af_sky"]
 EDGE_DEFAULT_VOICES = [
-    ("en-GB-SoniaNeural", "Sonia", "en-GB", "Female"), ("en-GB-RyanNeural", "Ryan", "en-GB", "Male"),
-    ("en-GB-LibbyNeural", "Libby", "en-GB", "Female"), ("en-GB-ThomasNeural", "Thomas", "en-GB", "Male"),
-    ("en-GB-MaisieNeural", "Maisie", "en-GB", "Female"), ("en-IE-EmilyNeural", "Emily", "en-IE", "Female"),
-    ("en-IE-ConnorNeural", "Connor", "en-IE", "Male"), ("en-US-AriaNeural", "Aria", "en-US", "Female"),
-    ("en-US-JennyNeural", "Jenny", "en-US", "Female"), ("en-US-GuyNeural", "Guy", "en-US", "Male"),
-    ("en-US-AndrewNeural", "Andrew", "en-US", "Male"), ("en-US-EmmaNeural", "Emma", "en-US", "Female"),
-    ("en-AU-NatashaNeural", "Natasha", "en-AU", "Female"), ("en-AU-WilliamNeural", "William", "en-AU", "Male"),
+    ("en-GB-SoniaNeural", "Sonia", "en-GB", "Female"), ("en-GB-LibbyNeural", "Libby", "en-GB", "Female"),
+    ("en-GB-MaisieNeural", "Maisie", "en-GB", "Female"), ("en-US-AriaNeural", "Aria", "en-US", "Female"),
+    ("en-US-JennyNeural", "Jenny", "en-US", "Female"), ("en-US-EmmaNeural", "Emma", "en-US", "Female"),
+    ("en-US-AvaNeural", "Ava", "en-US", "Female"), ("en-US-MichelleNeural", "Michelle", "en-US", "Female"),
 ]
+# macOS `say` does not report a voice's sex, so it is asked of the system (_MAC_VOICES_JXA); these
+# names are the fallback if that fails. Novelty voices (sound effects, singing) are never offered.
+MAC_FEMALE_VOICES = {"Samantha", "Allison", "Ava", "Susan", "Vicki", "Victoria", "Kathy", "Zoe", "Nicky",
+                     "Joelle", "Noelle", "Kate", "Serena", "Stephanie", "Martha", "Fiona", "Flo", "Grandma",
+                     "Sandy", "Shelley"}
+MAC_NOVELTY_VOICES = {"Albert", "Bad News", "Bahh", "Bells", "Boing", "Bubbles", "Cellos", "Good News", "Jester",
+                      "Organ", "Pipe Organ", "Superstar", "Trinoids", "Whisper", "Wobble", "Zarvox", "Deranged",
+                      "Hysterical"}
 
 SETTINGS_DEFAULTS = {
     "tts_voice": "",           # "engine:voice id"; blank = best available
@@ -362,16 +369,43 @@ def word_weights(words, phoneme_lens=None):
     return ws
 
 
-def spread_times(words, duration, phoneme_lens=None):
-    """[(start, end)] for the words of one clip of `duration` seconds."""
+def spread_times(words, duration, phoneme_lens=None, span=None):
+    """[(start, end)] for the words of one clip of `duration` seconds. `span` is the
+    (start, end) of the audible part (_voiced_span): the words share that, not the
+    silence an engine pads each sentence with - otherwise the highlight runs ahead."""
+    a, b = span if span else (0.0, duration)
+    if not (0.0 <= a < b <= duration) or b - a < 0.05:
+        a, b = 0.0, duration
     ws = word_weights(words, phoneme_lens)
     total = sum(ws) or 1.0
-    out, t = [], 0.0
+    out, t = [], a
     for wgt in ws:
-        d = duration * wgt / total
+        d = (b - a) * wgt / total
         out.append((t, t + d))
         t += d
     return out
+
+
+def _voiced_span(pcm, rate=SAMPLE_RATE):
+    """(start, end) seconds of the audible part of a clip of 16-bit mono PCM."""
+    s = array.array("h")
+    s.frombytes(pcm[:len(pcm) // 2 * 2])
+    n = len(s)
+    if not n:
+        return 0.0, 0.0
+    peak = max(max(s), -min(s))
+    if peak < 300:                      # silence or near enough: nothing to trim against
+        return 0.0, n / rate
+    thr = max(200, peak // 20)
+    win = max(1, rate // 100)           # 10 ms
+    a = 0
+    while a < n and max(map(abs, s[a:a + win])) < thr:
+        a += win
+    b = n
+    while b > a and max(map(abs, s[max(a, b - win):b])) < thr:
+        b -= win
+    pad = rate // 50                    # keep 20 ms either side: soft consonants sit below the threshold
+    return max(0, a - pad) / rate, min(n, b + pad) / rate
 
 
 def rsvp_dwell(word, wpm):
@@ -508,6 +542,10 @@ class Engine:
         v = self.voices()
         return v[0][0] if v else ""
 
+    def allowed(self, vid):
+        """Is this voice one the list offers (a saved choice may predate the voice policy)?"""
+        return any(v == vid for v, _ in self.voices())
+
     def synth(self, words, text, voice, speed):
         raise NotImplementedError
 
@@ -553,7 +591,7 @@ class KokoroEngine(Engine):
         ids = list(KOKORO_DEFAULT_VOICES)
         if self._k is not None:
             try:
-                extra = [v for v in self._k.get_voices() if v not in ids and v[:1] in "ab"]
+                extra = [v for v in self._k.get_voices() if v not in ids and v[:2] in KOKORO_VOICE_PREFIXES]
                 ids += sorted(extra)
             except Exception:
                 pass
@@ -561,6 +599,9 @@ class KokoroEngine(Engine):
 
     def default_voice(self):
         return "bf_emma"
+
+    def allowed(self, vid):
+        return vid[:2] in KOKORO_VOICE_PREFIXES
 
     def _load(self):
         if _KOKORO["model"] is None:
@@ -597,10 +638,16 @@ class KokoroEngine(Engine):
                 chunks = [c for c in re.split(r"\s+", ph.strip()) if c]
                 if len(chunks) == len(words):
                     phon = [len(c) for c in chunks]
+                else:
+                    # punctuation and numbers split or merge chunks: phonemise word by word instead
+                    lens = [len(re.sub(r"\s+", "", k.tokenizer.phonemize(w.clean or w.text, lang)))
+                            if (w.clean or w.text).strip() else 0 for w in words]
+                    if any(lens):
+                        phon = lens
             except Exception:
                 phon = None
             seconds = len(pcm) / 2 / SAMPLE_RATE
-            return Clip(pcm, spread_times(words, seconds, phon))
+            return Clip(pcm, spread_times(words, seconds, phon, _voiced_span(pcm)))
 
 
 class EdgeEngine(Engine):
@@ -631,14 +678,13 @@ class EdgeEngine(Engine):
             for v in data:
                 sn = v.get("ShortName", "")
                 loc = v.get("Locale", "")
-                if not sn:
+                if not sn or loc not in VOICE_LOCALES or v.get("Gender") != "Female":
                     continue
                 name = sn.split("-")[-1].replace("Neural", "")
-                out.append((sn, f"{name} ({loc} {v.get('Gender', '').lower()})"))
-            eng = [x for x in out if x[0].startswith("en-")]
-            rest = [x for x in out if not x[0].startswith("en-")]
-            if eng:
-                return eng + rest
+                out.append((sn, f"{name} ({loc} female)"))
+            out.sort(key=lambda x: (VOICE_LOCALES.index(x[0][:5]) if x[0][:5] in VOICE_LOCALES else 9, x[1]))
+            if out:
+                return out
         except Exception:
             pass
         return [(sn, f"{name} ({loc} {g.lower()})") for sn, name, loc, g in EDGE_DEFAULT_VOICES]
@@ -660,11 +706,17 @@ class EdgeEngine(Engine):
         import asyncio
         import edge_tts
         import miniaudio
-        pct = int(round((max(0.5, min(3.0, float(speed))) - 1.0) * 100))
+        # the service sends no audio past double speed
+        pct = int(round((max(0.5, min(2.0, float(speed))) - 1.0) * 100))
         rate = f"{pct:+d}%"
 
         async def run():
-            comm = edge_tts.Communicate(text, voice=voice, rate=rate)
+            try:
+                # edge-tts 7+ sends sentence boundaries unless asked for words - without them the
+                # highlight could only be spread evenly across each sentence
+                comm = edge_tts.Communicate(text, voice=voice, rate=rate, boundary="WordBoundary")
+            except TypeError:           # older edge-tts: no option, word boundaries always on
+                comm = edge_tts.Communicate(text, voice=voice, rate=rate)
             audio = bytearray()
             marks = []
             async for chunk in comm.stream():
@@ -674,21 +726,31 @@ class EdgeEngine(Engine):
                     marks.append((chunk["offset"] / 1e7, chunk["duration"] / 1e7, chunk.get("text", "")))
             return bytes(audio), marks
 
-        audio, marks = asyncio.run(run())
-        if not audio:
-            raise RuntimeError("no audio returned")
+        err = None
+        for attempt in range(2):            # the service drops the odd request: one quiet retry
+            try:
+                audio, marks = asyncio.run(run())
+                if audio:
+                    break
+                err = RuntimeError("no audio returned")
+            except Exception as e:
+                err = e
+            if attempt == 0:
+                time.sleep(0.4)
+        else:
+            raise err
         dec = miniaudio.decode(audio, output_format=miniaudio.SampleFormat.SIGNED16, nchannels=1,
                                sample_rate=SAMPLE_RATE)
         pcm = dec.samples.tobytes()
         seconds = len(pcm) / 2 / SAMPLE_RATE
-        return Clip(pcm, _align_marks(words, marks, seconds))
+        return Clip(pcm, _align_marks(words, marks, seconds, _voiced_span(pcm)))
 
 
-def _align_marks(words, marks, seconds):
+def _align_marks(words, marks, seconds, span=None):
     """Map edge's word boundaries onto our tokens; interpolate anything unmatched."""
     times = [None] * len(words)
     if not marks:
-        return spread_times(words, seconds)
+        return spread_times(words, seconds, span=span)
     k = 0
     for off, dur, txt in marks:
         key = re.sub(r"[^\w]", "", txt).lower()
@@ -763,6 +825,16 @@ while ($true) {
     [Console]::Out.Flush()
 }
 """
+_MAC_VOICES_JXA = r"""
+ObjC.import('AppKit');
+var vs = $.NSSpeechSynthesizer.availableVoices, out = [];
+for (var i = 0; i < vs.count; i++) {
+  var a = $.NSSpeechSynthesizer.attributesForVoice(vs.objectAtIndex(i));
+  out.push([ObjC.unwrap(a.objectForKey('VoiceName')), ObjC.unwrap(a.objectForKey('VoiceLocaleIdentifier')),
+            ObjC.unwrap(a.objectForKey('VoiceGender'))].join('|'));
+}
+out.join('\n');
+"""
 _SAPI_VOICES = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
                 "foreach ($v in $s.GetInstalledVoices()) { if ($v.Enabled) { [Console]::Out.WriteLine($v.VoiceInfo.Name + '|' "
                 "+ $v.VoiceInfo.Gender + '|' + $v.VoiceInfo.Culture.Name) } }")
@@ -805,7 +877,21 @@ class SystemEngine(Engine):
             return True, ""
         return False, "espeak-ng is not installed"
 
+    @staticmethod
+    def is_natural(vid):
+        """macOS Enhanced / Premium voices are neural; SAPI desktop, classic macOS and espeak are not."""
+        return sys.platform == "darwin" and bool(re.search(r"\((Enhanced|Premium)\)", vid or ""))
+
     def voices(self, fetch=True):
+        """The female UK/US voices this system offers - and while a neural engine (Kokoro or the
+        online voices) is available, only the natural-sounding ones among them: the robotic
+        voices are kept for when there is nothing better."""
+        full = self._os_voices(fetch)
+        if neural_engine_available():
+            return [x for x in full if self.is_natural(x[0])]
+        return full
+
+    def _os_voices(self, fetch=True):
         """The OS voice list. Asking the OS takes up to a second or two
         (PowerShell), so fetch=False returns the cached list or a placeholder."""
         if SystemEngine._cache is not None:
@@ -822,25 +908,34 @@ class SystemEngine(Engine):
                                    startupinfo=kw.get("startupinfo"), creationflags=kw.get("creationflags", 0))
                 for line in p.stdout.splitlines():
                     parts = line.strip().split("|")
-                    if len(parts) >= 3 and parts[0]:
+                    if len(parts) >= 3 and parts[0] and parts[1] == "Female" and parts[2] in VOICE_LOCALES:
                         out.append((parts[0], f"{parts[0].replace('Microsoft ', '').replace(' Desktop', '')} "
-                                              f"({parts[2]} {parts[1].lower()})"))
+                                              f"({parts[2]} female)"))
+                out.sort(key=lambda x: (VOICE_LOCALES.index(x[1].split("(")[-1][:5]), x[0]))
             elif sys.platform == "darwin":
+                sexes = self._mac_voice_sexes()
                 p = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=30)
                 for line in p.stdout.splitlines():
-                    m = re.match(r"^(.*?)\s{2,}([a-zA-Z_\-]+)\s+#", line)
-                    if m:
-                        name, loc = m.group(1).strip(), m.group(2)
-                        out.append((name, f"{name} ({loc})"))
-                # english first, en_GB before the rest
-                out.sort(key=lambda x: (not x[1].endswith("(en_GB)"), "(en" not in x[1], x[0]))
+                    # anchored on the locale: a name that fills its column ("Samantha (Enhanced)",
+                    # "Eddy (English (UK))") is followed by one space, not two
+                    m = re.match(r"^(.+?)\s+([a-z]{2,3}_[A-Za-z0-9_\-]+)\s+#", line)
+                    if not m:
+                        continue
+                    name, loc = m.group(1).strip(), m.group(2)
+                    base = re.sub(r"\s*\(.*$", "", name)
+                    if not loc.startswith(("en_GB", "en_US")) or base in MAC_NOVELTY_VOICES:
+                        continue
+                    sex = sexes.get(name) or sexes.get(base)      # the system may call "Flo (English (UK))" just "Flo"
+                    if (sex.endswith("Female") if sex else base in MAC_FEMALE_VOICES):
+                        out.append((name, f"{name} ({loc[:5].replace('_', '-')} female)"))
+                out.sort(key=lambda x: (not x[1].endswith("(en-GB female)"), x[0]))
             else:
                 exe = shutil.which("espeak-ng") or shutil.which("espeak")
                 p = subprocess.run([exe, "--voices=en"], capture_output=True, text=True, timeout=30)
                 for line in p.stdout.splitlines()[1:]:
                     parts = line.split()
-                    if len(parts) >= 4:
-                        out.append((parts[1], f"{parts[3]} ({parts[1]})"))
+                    if len(parts) >= 4 and parts[1] in ("en-gb", "en-us"):
+                        out.append((parts[1] + "+f3", f"{parts[3]} ({parts[1]} female)"))   # +f3: female variant
         except Exception as e:
             self.log(f"system voices: {e!r}")
         if not out:
@@ -848,17 +943,27 @@ class SystemEngine(Engine):
         SystemEngine._cache = out
         return out
 
-    def default_voice(self):
-        v = self.voices(fetch=False)
-        if sys.platform == "darwin":
-            for vid, _ in v:
-                if vid == "Daniel":
-                    return vid
-        if os.name == "nt":
-            for vid, lab in v:
-                if "en-GB" in lab:
-                    return vid
+    @staticmethod
+    def _mac_voice_sexes():
+        """{voice name: 'VoiceGenderFemale' / 'VoiceGenderMale' / ...} from the system, or {}."""
+        try:
+            p = subprocess.run(["osascript", "-l", "JavaScript", "-e", _MAC_VOICES_JXA],
+                               capture_output=True, text=True, timeout=20)
+            out = {}
+            for line in p.stdout.splitlines():
+                parts = line.split("|")
+                if len(parts) == 3 and parts[0] and parts[2]:
+                    out[parts[0]] = parts[2]
+            return out
+        except Exception:
+            return {}
+
+    def default_voice(self, fetch=True):
+        v = self.voices(fetch=fetch)          # sorted UK first; fetched once, then cached
         return v[0][0] if v else ""
+
+    def allowed(self, vid):
+        return any(v == vid for v, _ in self.voices())
 
     def _rate_param(self, speed):
         speed = max(0.5, min(3.0, float(speed)))
@@ -894,7 +999,7 @@ class SystemEngine(Engine):
                 os.remove(out)
             except OSError:
                 pass
-            return Clip(pcm, spread_times(words, seconds))
+            return Clip(pcm, spread_times(words, seconds, span=_voiced_span(pcm)))
 
     def _sapi(self, text, voice, rate, out):
         if self._proc is None or self._proc.poll() is not None:
@@ -929,12 +1034,20 @@ ENGINES = {"kokoro": KokoroEngine, "edge": EdgeEngine, "system": SystemEngine}
 ENGINE_ORDER = ("kokoro", "edge", "system")
 
 
+def neural_engine_available():
+    """Kokoro or the online voices can speak - so the robotic system voices are not offered."""
+    return KokoroEngine.available()[0] or EdgeEngine.available()[0]
+
+
 def engine_status():
     """{engine id: (ok, reason)} - cheap, never loads a model."""
     return {k: cls.available() for k, cls in ENGINES.items()}
 
 
 # ---------------------------------------------------------------- playback
+MA_PERIODS = 3                  # periods miniaudio keeps queued when callback_periods is left at 0
+
+
 class _Timeline:
     """Which sentence/word the audio output is on. Shared by both players."""
 
@@ -971,7 +1084,13 @@ class _MiniaudioOut:
         self.paused = False
         self._clips = {}            # position in segs -> pcm bytes
         self._offset = 0            # bytes consumed in the current clip
-        self.latency = 0.08
+        # What is audible lags what the callback hands over by the periods queued ahead of it
+        # (buffersize_msec is miniaudio's period; it keeps MA_PERIODS of them) plus the OS mixer.
+        self.latency = 0.02
+        self._dev_frames = 0        # frames handed to the device, silence included
+        self._chunk = 0.08          # seconds asked for by the last callback
+        self._stamp = None          # monotonic time of the last callback
+        self._hist = []             # [(device frame, segs position, clip frame, nframes)] handed lately
         self.dev = miniaudio.PlaybackDevice(output_format=miniaudio.SampleFormat.SIGNED16, nchannels=1,
                                             sample_rate=SAMPLE_RATE, buffersize_msec=80)
         g = self._gen()
@@ -984,12 +1103,15 @@ class _MiniaudioOut:
             nbytes = need * 2
             out = bytearray()
             with self.tl.lock:
+                base = self._dev_frames
                 if not self.paused:
                     while len(out) < nbytes and self.tl.cur < len(self.tl.segs):
                         pcm = self._clips.get(self.tl.cur)
                         if pcm is None:
                             break
                         take = min(nbytes - len(out), len(pcm) - self._offset)
+                        if take > 0:
+                            self._hist.append((base + len(out) // 2, self.tl.cur, self._offset // 2, take // 2))
                         out += pcm[self._offset:self._offset + take]
                         self._offset += take
                         self.tl.frame = self._offset // 2
@@ -998,6 +1120,10 @@ class _MiniaudioOut:
                             self.tl.cur += 1
                             self._offset = 0
                             self.tl.frame = 0
+                del self._hist[:-64]
+                self._dev_frames = base + need
+                self._chunk = need / SAMPLE_RATE
+                self._stamp = time.monotonic()
             if len(out) < nbytes:
                 out += bytes(nbytes - len(out))
             need = yield bytes(out)
@@ -1006,6 +1132,7 @@ class _MiniaudioOut:
         with self.tl.lock:
             self._clips = {}
             self._offset = 0
+            self._hist = []
             self.tl.segs, self.tl.cur, self.tl.frame, self.tl.generation = [], 0, 0, generation
 
     def enqueue(self, sent_idx, pcm, generation):
@@ -1016,8 +1143,31 @@ class _MiniaudioOut:
             self.tl.segs.append((sent_idx, len(pcm) // 2))
 
     def position(self):
-        s, t, done = self.tl.position()
-        return s, max(0.0, t - self.latency), done
+        """(sentence, seconds into it, done) of what is audible now - not of what the callback
+        last handed over, which runs ahead by the device buffer, steps a whole period at a
+        time and crosses into the next sentence while the last one is still sounding."""
+        with self.tl.lock:
+            segs, cur = self.tl.segs, self.tl.cur
+            if self._hist and self._stamp is not None:
+                since = min(max(0.0, time.monotonic() - self._stamp), self._chunk)
+                aud = self._dev_frames - (MA_PERIODS * self._chunk + self.latency - since) * SAMPLE_RATE
+                pick = None
+                for span in reversed(self._hist):
+                    if span[0] <= aud:
+                        pick = span
+                        break
+                if pick is None:                    # this run's audio is not out of the buffer yet
+                    pick, frame = self._hist[0], self._hist[0][2]
+                else:                               # past the span's end: silence (paused / waiting)
+                    frame = pick[2] + min(pick[3], aud - pick[0])
+                last = self._hist[-1]
+                if not (cur >= len(segs) and aud >= last[0] + last[3]):
+                    return segs[pick[1]][0], frame / SAMPLE_RATE, False
+            elif cur < len(segs):
+                return segs[cur][0], self.tl.frame / SAMPLE_RATE, False
+            if segs:
+                return segs[-1][0], segs[-1][1] / SAMPLE_RATE, True
+            return None, 0.0, True
 
     def waiting(self):
         with self.tl.lock:
@@ -1088,12 +1238,19 @@ class _ProcessOut:
                     # (re)start this clip from _pause_at
                     skip = int(self._pause_at * SAMPLE_RATE) * 2
                     path = os.path.join(self._tmp, f"p{self.tl.cur}.wav")
-                    pcm_to_wav(pcm[skip:], path)
-                    self._proc = self._play_file(path)
+                    try:
+                        pcm_to_wav(pcm[skip:], path)
+                        self._proc = self._play_file(path)
+                    except Exception:
+                        # no player / locked file / winsound refused: carry on silently on the clock rather
+                        # than let this thread die and the highlight freeze
+                        self._proc = None
                     self._started = time.monotonic() - self._pause_at
                 elapsed = time.monotonic() - self._started
                 self.tl.frame = min(nframes, int(elapsed * SAMPLE_RATE))
                 if elapsed >= nframes / SAMPLE_RATE + 0.02:
+                    if self._proc is not None and self._proc.poll() is None and elapsed < nframes / SAMPLE_RATE + 2.0:
+                        continue    # the player started late and is still sounding: the next one would talk over it
                     try:
                         os.remove(os.path.join(self._tmp, f"p{self.tl.cur}.wav"))   # one WAV per sentence otherwise piles up until close
                     except OSError:
@@ -1121,7 +1278,8 @@ class _ProcessOut:
             self.tl.segs.append((sent_idx, len(pcm) // 2))
 
     def position(self):
-        return self.tl.position()
+        s, t, done = self.tl.position()
+        return s, max(0.0, t - self.latency), done      # the player process takes a moment to start sounding
 
     def waiting(self):
         with self.tl.lock:
@@ -1165,6 +1323,7 @@ class Reader:
         self.state = "idle"             # idle / loading / buffering / playing / paused / done / error
         self.error = ""
         self.progress = ""              # a one-line note for the status label
+        self._fallback = None           # (generation, engine, voice) used after the chosen engine failed
         self._engines = {}
         self._out = None
         self._gen = 0
@@ -1179,15 +1338,35 @@ class Reader:
         self._cursor = 0                # last word reported
 
     # -- configuration
-    def voice(self):
+    def voice(self, fetch=True):
+        """(engine id, voice id) to speak with. The Tk thread passes fetch=False: checking a
+        system voice means asking the OS for its list (seconds, the first time), which only
+        the synthesis thread may wait on - until then a saved system voice is taken as is."""
         v = self.s.get("tts_voice") or ""
         if ":" in v:
             eng, vid = v.split(":", 1)
             if eng in ENGINES and ENGINES[eng].available()[0]:
-                return eng, vid
+                e = self.engine(eng)
+                if eng == "system" and neural_engine_available() and not SystemEngine.is_natural(vid):
+                    ok = False                       # robotic, and something natural is there: decided by name, no fetch
+                elif eng == "system" and not fetch and SystemEngine._cache is None:
+                    return eng, vid
+                else:
+                    try:
+                        ok = e.allowed(vid)
+                    except Exception:
+                        ok = False
+                if ok:
+                    return eng, vid
+                # a saved voice the list no longer offers (male, other accents, robotic) gives way to that
+                # engine's default - or, if it has none left to offer, to the first engine that has
+                d = e.default_voice(fetch=False) if eng == "system" and not fetch else e.default_voice()
+                if d:
+                    return eng, d
         for eng in ENGINE_ORDER:
             if ENGINES[eng].available()[0]:
-                return eng, self.engine(eng).default_voice()
+                e = self.engine(eng)
+                return eng, (e.default_voice(fetch=False) if eng == "system" and not fetch else e.default_voice())
         return "system", ""
 
     def engine(self, eid):
@@ -1358,9 +1537,14 @@ class Reader:
                     if nxt > playing_sent + self.LOOKAHEAD:
                         break
                     sent = doc.sentences[nxt]
-                    eng_id, vid = self.voice()
                     speed = self.speed()
                     frm, start_word = self._from, self._start_word     # same snapshot as doc/nxt: a play() now cannot mix runs
+                # outside the lock: the first look at the system voice list can take a second or two, and the
+                # UI clock must not wait on it (a voice changed meanwhile is caught by the generation check below)
+                eng_id, vid = self.voice()
+                fb = self._fallback
+                if fb is not None and fb[0] == gen:      # the chosen engine already failed this run: don't wait on it again
+                    eng_id, vid = fb[1], fb[2]
                 first = sent.first
                 if nxt == frm and start_word > sent.first:
                     first = start_word          # clicked mid-sentence: speak from that word
@@ -1373,13 +1557,22 @@ class Reader:
                     self.log(f"read aloud: {eng_id} failed on sentence {nxt}: {e!r}")
                     clip = None
                     err = f"{ENGINES[eng_id].label}: {e}"
-                    if eng_id != "system" and SystemEngine.available()[0]:
+                    # natural voices first (Kokoro is offline, so it survives a dropped connection), the
+                    # system voice last; whatever works carries on for the rest of this run
+                    for alt in ENGINE_ORDER:
+                        if alt == eng_id or not ENGINES[alt].available()[0]:
+                            continue
                         try:
-                            clip = self.engine("system").synth(words, text, self.engine("system").default_voice(), speed)
+                            ae = self.engine(alt)
+                            av = ae.default_voice()
+                            clip = ae.synth(words, text, av, speed)
                             clip.first = first
-                            self.progress = f"{ENGINES[eng_id].label} failed - using the system voice"
+                            self._fallback = (gen, alt, av)
+                            self.progress = f"{ENGINES[eng_id].label} failed - using {ENGINES[alt].label}"
+                            break
                         except Exception as e2:
-                            err += f"\nSystem voice: {e2}"
+                            clip = None
+                            err += f"\n{ENGINES[alt].label}: {e2}"
                     if clip is None:
                         with self._lock:
                             if gen == self._gen:          # an abandoned run must not kill the new one
@@ -1416,6 +1609,9 @@ class TextHighlighter:
         self.cur = None
         # Tk 8.6 counts a character outside the BMP (an emoji) as two; Python (and Tk 9) as one.
         # Measure rather than assume: if Tk's count matches Python's, no correction is needed.
+        # line starts, so an offset becomes "line.col" by bisection - Tk's own "1.0+Nc" walks every
+        # line from the top, which made each highlighted word slower the further into a book it was
+        self._lines = [0] + [k + 1 for k, ch in enumerate(doc.text) if ch == "\n"]
         self._astral = [k for k, ch in enumerate(doc.text) if ord(ch) > 0xFFFF]
         if self._astral:
             try:
@@ -1435,10 +1631,13 @@ class TextHighlighter:
         self.text.tag_configure("ra_word", background=c["accent"], foreground=c["accent_text"])
 
     def _idx(self, off):
-        if self._astral:
-            import bisect
-            off += bisect.bisect_left(self._astral, off)
-        return f"1.0+{off}c"
+        import bisect
+        off = max(0, min(off, len(self.doc.text)))
+        line = bisect.bisect_right(self._lines, off) - 1
+        col = off - self._lines[line]
+        if self._astral:        # Tk 8.6 counts each character outside the BMP as two columns
+            col += bisect.bisect_left(self._astral, off) - bisect.bisect_left(self._astral, self._lines[line])
+        return f"{line + 1}.{col}"
 
     def show(self, i):
         if i == self.cur:
@@ -1486,10 +1685,9 @@ class TextHighlighter:
             line, col = map(int, self.text.index(tk_index).split("."))
         except Exception:
             return None
-        lines = self.doc.text.split("\n")
-        line = max(1, min(line, len(lines)))
-        start = sum(len(lines[k]) + 1 for k in range(line - 1))
-        cur = lines[line - 1]
+        line = max(1, min(line, len(self._lines)))      # the line starts, not a split of the whole book per click
+        start = self._lines[line - 1]
+        cur = self.doc.text[start:self._lines[line] - 1 if line < len(self._lines) else len(self.doc.text)]
         if not self._astral:
             # Tk's count matches Python's (no astral chars, or Tk 9): the column is the offset
             return self.doc.word_at_char(start + min(col, len(cur)))
@@ -1698,7 +1896,7 @@ class ReadBar:
             labels.append("Fetch the full online voice list…")
         self._voice_items = items
         self.cmb_voice["values"] = labels
-        eid, vid = self.reader.voice()
+        eid, vid = self.reader.voice(fetch=False)
         for k, (e, v) in enumerate(items):
             if e == eid and v == vid:
                 self.cmb_voice.current(k)
@@ -1803,8 +2001,9 @@ class ReadBar:
         v = round(self.var_speed.get(), 2)
         self.reader.set_speed(v)
         self.app.save_settings()
-        if v > 2.0 and self.reader.voice()[0] == "kokoro":
-            self.set_status("Kokoro tops out at 2× (the online and system voices go to 3×)")
+        eid = self.reader.voice(fetch=False)[0]
+        if v > 2.0 and eid in ("kokoro", "edge"):
+            self.set_status(f"{ENGINES[eid].label.split(' (')[0]} voices top out at 2× (the system voices go to 3×)")
 
     def _wpm_moved(self, _):
         v = int(self.var_wpm.get())
@@ -1857,7 +2056,7 @@ class ReadBar:
                  f"kokoro files on disk: {kokoro_files_on_disk()}  matching: {kokoro_models_present()}"]
         for k, (ok, why) in engine_status().items():
             lines.append(f"engine {k}: {'available' if ok else 'not available - ' + why}")
-        lines.append(f"voice setting: {self.s.get('tts_voice')!r} -> using {self.reader.voice()}")
+        lines.append(f"voice setting: {self.s.get('tts_voice')!r} -> using {self.reader.voice(fetch=False)}")
         lines.append(f"audio: {self.var_audio.get()}  rsvp checkbox: {self.var_rsvp.get()}  panel packed: {self._rsvp_packed}")
         try:
             fr = self.rsvp.frame
@@ -1880,7 +2079,9 @@ class ReadBar:
         return "\n".join(lines)
 
     def set_status(self, text):
-        self.lbl_status.configure(text=text)
+        if text != getattr(self, "_status_text", None):    # the clock calls this every 30 ms
+            self._status_text = text
+            self.lbl_status.configure(text=text)
 
     # -- transport
     def toggle(self):
@@ -1894,6 +2095,8 @@ class ReadBar:
     def play(self, word_idx=0):
         doc = self.get_doc()
         if doc is None or not doc.words:
+            if self.mode != "idle":         # auto-advance into an empty page: stop, don't sit there showing "Pause"
+                self.stop(keep_cursor=True)
             self.set_status("Nothing to read")
             return
         self.doc = doc
@@ -1908,7 +2111,7 @@ class ReadBar:
         self.btn_play.configure(text="⏸ Pause")
         if self.var_audio.get():
             self.mode = "audio"
-            eid, _ = self.reader.voice()
+            eid, _ = self.reader.voice(fetch=False)
             self.reader.load(doc)
             self.reader.play(self.cursor)
             self.set_status("Loading voice…" if eid == "kokoro" else "Starting…")
@@ -2042,9 +2245,9 @@ class ReadBar:
         r = self.reader
         idx, state = r.current()
         if state == "error":
-            self.set_status(r.error.splitlines()[0][:120] if r.error else "Voice failed")
             self.app.log("read aloud: " + r.error)
-            self.stop(keep_cursor=True)
+            self.stop(keep_cursor=True)         # before the message: stop() blanks the status line
+            self.set_status(r.error.splitlines()[0][:120] if r.error else "Voice failed")
             return
         if state == "done":
             if idx is not None:

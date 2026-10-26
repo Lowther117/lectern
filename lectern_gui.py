@@ -410,6 +410,7 @@ class App:
 
     def _install(self, doc):
         self.doc = doc
+        self._find_low = (None, "")     # find()'s lower-cased copy belongs to the old document
         self.rdoc = readaloud.tokenize(doc.text)
         self.lbl_title.configure(text=doc.title or os.path.basename(doc.path))
         self.root.title(f"{doc.title or os.path.basename(doc.path)} - {core.APP_NAME}")
@@ -421,13 +422,16 @@ class App:
         t.delete("1.0", "end")
         pos = 0
         page_starts = {p.start: p.number for p in doc.pages} if doc.pages else {}
+        flat = []                       # one Tk call for the whole book, not two per paragraph
         for a, b, st in doc.blocks:
             if a > pos:
-                t.insert("end", doc.text[pos:a])
-            t.insert("end", doc.text[a:b], (st,))
+                flat += (doc.text[pos:a], ())
+            flat += (doc.text[a:b], (st,))
             pos = b
         if pos < len(doc.text):
-            t.insert("end", doc.text[pos:])
+            flat += (doc.text[pos:], ())
+        if flat:
+            t.insert("end", *flat)
         t.configure(state="disabled")
         self.hl = readaloud.TextHighlighter(t, self.rdoc, self.palette)
         self._fonts()
@@ -642,7 +646,7 @@ class App:
 
     def _on_word(self, i):
         if self.hl:
-            if self.view == "text":
+            if self.view == "text" or i is None:    # a clear must reach the hidden text too, or its old marks reappear
                 self.hl.show(i)
             else:
                 self.hl.cur = i      # keep in step without scrolling the hidden widget
@@ -693,7 +697,9 @@ class App:
         q = _lower_same_len(self.var_find.get().strip())
         if not q or not self.rdoc or not self.rdoc.words:
             return
-        text = _lower_same_len(self.doc.text)
+        if getattr(self, "_find_low", (None,))[0] is not self.doc:      # lower-case the book once, not per Enter
+            self._find_low = (self.doc, _lower_same_len(self.doc.text))
+        text = self._find_low[1]
         cur = self.rdoc.words[self.readbar.cursor]
         if direction > 0:
             pos = text.find(q, cur.end)
