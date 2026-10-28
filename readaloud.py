@@ -1326,6 +1326,8 @@ class Reader:
         self.error = ""
         self.progress = ""              # a one-line note for the status label
         self._fallback = None           # (generation, engine, voice) used after the chosen engine failed
+        self.engines = ENGINES          # a host can narrow these (Verbatim reads its recording, no voices)
+        self.engine_order = ENGINE_ORDER
         self._engines = {}
         self._out = None
         self._gen = 0
@@ -1347,7 +1349,7 @@ class Reader:
         v = self.s.get("tts_voice") or ""
         if ":" in v:
             eng, vid = v.split(":", 1)
-            if eng in ENGINES and ENGINES[eng].available()[0]:
+            if eng in self.engines and self.engines[eng].available()[0]:
                 e = self.engine(eng)
                 if eng == "system" and neural_engine_available() and not SystemEngine.is_natural(vid):
                     ok = False                       # robotic, and something natural is there: decided by name, no fetch
@@ -1365,8 +1367,8 @@ class Reader:
                 d = e.default_voice(fetch=False) if eng == "system" and not fetch else e.default_voice()
                 if d:
                     return eng, d
-        for eng in ENGINE_ORDER:
-            if ENGINES[eng].available()[0]:
+        for eng in self.engine_order:
+            if self.engines[eng].available()[0]:
                 e = self.engine(eng)
                 return eng, (e.default_voice(fetch=False) if eng == "system" and not fetch else e.default_voice())
         return "system", ""
@@ -1374,7 +1376,7 @@ class Reader:
     def engine(self, eid):
         e = self._engines.get(eid)
         if e is None:
-            e = self._engines[eid] = ENGINES[eid](self.log)
+            e = self._engines[eid] = self.engines[eid](self.log)
         return e
 
     def speed(self):
@@ -1558,11 +1560,11 @@ class Reader:
                 except Exception as e:
                     self.log(f"read aloud: {eng_id} failed on sentence {nxt}: {e!r}")
                     clip = None
-                    err = f"{ENGINES[eng_id].label}: {e}"
+                    err = f"{self.engines[eng_id].label}: {e}"
                     # natural voices first (Kokoro is offline, so it survives a dropped connection), the
                     # system voice last; whatever works carries on for the rest of this run
-                    for alt in ENGINE_ORDER:
-                        if alt == eng_id or not ENGINES[alt].available()[0]:
+                    for alt in self.engine_order:
+                        if alt == eng_id or not self.engines[alt].available()[0]:
                             continue
                         try:
                             ae = self.engine(alt)
@@ -1570,11 +1572,11 @@ class Reader:
                             clip = ae.synth(words, text, av, speed)
                             clip.first = first
                             self._fallback = (gen, alt, av)
-                            self.progress = f"{ENGINES[eng_id].label} failed - using {ENGINES[alt].label}"
+                            self.progress = f"{self.engines[eng_id].label} failed - using {self.engines[alt].label}"
                             break
                         except Exception as e2:
                             clip = None
-                            err += f"\n{ENGINES[alt].label}: {e2}"
+                            err += f"\n{self.engines[alt].label}: {e2}"
                     if clip is None:
                         with self._lock:
                             if gen == self._gen:          # an abandoned run must not kill the new one
