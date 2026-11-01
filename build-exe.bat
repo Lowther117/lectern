@@ -34,7 +34,15 @@ set "VPY=%VENV%\Scripts\python.exe"
 
 echo [3/5] Installing PyInstaller, PyMuPDF (PDF pages) and the voices...
 "%VPY%" -m pip install --only-binary :all: pyinstaller >> "%LOG%" 2>&1 || goto :fail
-"%VPY%" -m pip install --only-binary :all: pymupdf >> "%LOG%" 2>&1 || echo       (PyMuPDF did not install - PDFs will not open; everything else works)
+rem PyMuPDF 2.0 pulls in pymupdf-layout (its own ONNX models and runtime bits).
+rem Loaded in the same process as kokoro-onnx's onnxruntime it dies with an
+rem access violation - PyInstaller's dependency scan imports every package in
+rem one child process, so the build failed with "Isolated subprocess crashed
+rem while importing package 'kokoro_onnx'". Lectern only renders pages, so
+rem stay on the 1.26 line and clear any 2.0 left in the venv by an earlier
+rem build. onnxruntime itself stays - the voices need it.
+"%VPY%" -m pip uninstall -y pymupdf pymupdf-layout pymupdf4llm networkx >> "%LOG%" 2>&1
+"%VPY%" -m pip install --only-binary :all: "pymupdf>=1.24,<2" >> "%LOG%" 2>&1 || echo       (PyMuPDF did not install - PDFs will not open; everything else works)
 rem Read aloud: miniaudio = sound output + MP3 decode; kokoro-onnx = offline neural
 rem voices (needs Python 3.10-3.13); edge-tts = Microsoft's online voices. All
 rem optional - the app lists whatever installed, and the Windows voices always work.
@@ -46,6 +54,16 @@ for /f "usebackq delims=" %%F in (`"%VPY%" build_flags.py`) do set "EXTRA=%%F"
 echo       optional packages:
 "%VPY%" build_flags.py --list
 "%VPY%" build_flags.py --list >> "%LOG%"
+rem Load the optional packages together once, the way the finished exe will.
+rem A DLL clash between them kills the interpreter outright (exit code
+rem -1073741819 / 0xC0000005) rather than raising, and inside PyInstaller
+rem that only surfaces as "Isolated subprocess crashed".
+"%VPY%" -c "import importlib, importlib.util; [importlib.import_module(m) for m in ('fitz','kokoro_onnx','edge_tts','miniaudio') if importlib.util.find_spec(m)]" >> "%LOG%" 2>&1
+if errorlevel 1 (
+    echo       ERROR: the optional packages crash when loaded together - see build-win-log.txt.
+    echo       Delete .venv-build and run this again; if it persists, send the log.
+    goto :fail
+)
 "%VPY%" -c "import kokoro_onnx" >nul 2>&1 || goto :build
 echo       fetching the Kokoro voice files (about 140 MB, once, into %%LOCALAPPDATA%%\ReadAloud)...
 "%VPY%" -c "import readaloud as r; print('      already there' if r.kokoro_models_present() else ('      ok' if r.download_kokoro_models(lambda d,t,n: None) else '      incomplete'))" || echo       (download failed - the app offers it again from its Voice list)

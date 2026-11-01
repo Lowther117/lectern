@@ -78,7 +78,12 @@ VPY="$VENV/bin/python"
 "$VPY" -m pip install --upgrade pip --only-binary :all: >/dev/null 2>&1
 
 echo "[3/6] Installing PyInstaller, PyMuPDF (PDF pages) and the voices..."
-"$VPY" -m pip install --only-binary :all: pymupdf || echo "      (PyMuPDF did not install - PDFs will not open; everything else works)"
+# PyMuPDF 2.0 pulls in pymupdf-layout (its own ONNX models and runtime bits),
+# which clashes with kokoro-onnx's onnxruntime when both are loaded - on
+# Windows it crashed PyInstaller's dependency scan outright. Lectern only
+# renders pages, so stay on the 1.26 line and clear any 2.0 left behind.
+"$VPY" -m pip uninstall -y pymupdf pymupdf-layout pymupdf4llm networkx >/dev/null 2>&1 || true
+"$VPY" -m pip install --only-binary :all: "pymupdf>=1.24,<2" || echo "      (PyMuPDF did not install - PDFs will not open; everything else works)"
 # Read aloud: miniaudio = sound output + MP3 decode; kokoro-onnx = offline neural
 # voices; edge-tts = Microsoft's online voices. Each is optional - the app
 # lists whatever installed, and the OS voices always work.
