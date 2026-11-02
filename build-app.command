@@ -78,6 +78,9 @@ VPY="$VENV/bin/python"
 "$VPY" -m pip install --upgrade pip --only-binary :all: >/dev/null 2>&1
 
 echo "[3/6] Installing PyInstaller, PyMuPDF (PDF pages) and the voices..."
+# Every package gets a floor (oldest tested) and a ceiling at the next major
+# version, so a new major is opted into after a test build rather than found
+# by a routine rebuild - PyMuPDF 2.0 broke two builds that way (Nov 2026).
 # PyMuPDF 2.0 pulls in pymupdf-layout (its own ONNX models and runtime bits),
 # which clashes with kokoro-onnx's onnxruntime when both are loaded - on
 # Windows it crashed PyInstaller's dependency scan outright. Lectern only
@@ -87,13 +90,22 @@ echo "[3/6] Installing PyInstaller, PyMuPDF (PDF pages) and the voices..."
 # Read aloud: miniaudio = sound output + MP3 decode; kokoro-onnx = offline neural
 # voices; edge-tts = Microsoft's online voices. Each is optional - the app
 # lists whatever installed, and the OS voices always work.
-"$VPY" -m pip install --only-binary :all: miniaudio || echo "      (miniaudio did not install - read aloud uses afplay instead; online voices off)"
-"$VPY" -m pip install --only-binary :all: kokoro-onnx || echo "      (kokoro-onnx did not install - no offline neural voices)"
-"$VPY" -m pip install --only-binary :all: edge-tts || echo "      (edge-tts did not install - no online voices)"
-"$VPY" -m pip install --only-binary :all: pyinstaller || {
+"$VPY" -m pip install --only-binary :all: "miniaudio>=1.59,<2" || echo "      (miniaudio did not install - read aloud uses afplay instead; online voices off)"
+"$VPY" -m pip install --only-binary :all: "kokoro-onnx>=0.4,<1" || echo "      (kokoro-onnx did not install - no offline neural voices)"
+"$VPY" -m pip install --only-binary :all: "edge-tts>=7,<8" || echo "      (edge-tts did not install - no online voices)"
+"$VPY" -m pip install --only-binary :all: "pyinstaller>=6.11,<7" || {
     echo "PROBLEMS FOUND: PyInstaller install failed (see $LOG)"; read -r -p "Press Enter to close." < /dev/tty; exit 1; }
 EXTRA="$("$VPY" build_flags.py)"
 echo "      optional packages:"; "$VPY" build_flags.py --list | sed 's/^/        /'
+# Load the optional packages together once, the way the finished app will. A
+# library clash between them kills the interpreter outright rather than
+# raising, and inside PyInstaller that only surfaces as "Isolated subprocess
+# crashed" (which is how PyMuPDF 2.0 + kokoro-onnx failed on Windows).
+if ! "$VPY" -c "import importlib, importlib.util; [importlib.import_module(m) for m in ('fitz','kokoro_onnx','edge_tts','miniaudio') if importlib.util.find_spec(m)]"; then
+    echo "PROBLEMS FOUND: the optional packages crash when loaded together (see above)."
+    echo "Delete .venv-build-mac and run this again; if it persists, send the output."
+    read -r -p "Press Enter to close." < /dev/tty; exit 1
+fi
 if "$VPY" -c "import kokoro_onnx" >/dev/null 2>&1; then
     echo "      fetching the Kokoro voice files (about 140 MB, once, into ~/Library/Application Support/ReadAloud)..."
     "$VPY" -c "import readaloud as r; print('      already there' if r.kokoro_models_present() else ('      ok' if r.download_kokoro_models(lambda d,t,n: None) else '      incomplete'))" \

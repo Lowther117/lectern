@@ -49,9 +49,9 @@ if [ ! -x "$VENV/bin/python" ]; then
     echo "First run - creating .venv-mac and installing PyMuPDF + voices..."
     "$PY" -m venv "$VENV" || exit 1
     "$VENV/bin/python" -m pip install --upgrade pip --only-binary :all: >/dev/null 2>&1
-    "$VENV/bin/python" -m pip install --only-binary :all: pymupdf || echo "(PyMuPDF did not install - PDFs will not open; everything else works)"
-    "$VENV/bin/python" -m pip install --only-binary :all: miniaudio || echo "(miniaudio did not install - read aloud uses afplay; online voices off)"
-    "$VENV/bin/python" -m pip install --only-binary :all: kokoro-onnx || echo "(kokoro-onnx did not install - no offline neural voices)"
-    "$VENV/bin/python" -m pip install --only-binary :all: edge-tts || echo "(edge-tts did not install - no online voices)"
+    "$VENV/bin/python" -m pip install --only-binary :all: "pymupdf>=1.24,<2" || echo "(PyMuPDF did not install - PDFs will not open; everything else works)"
+    "$VENV/bin/python" -m pip install --only-binary :all: "miniaudio>=1.59,<2" || echo "(miniaudio did not install - read aloud uses afplay; online voices off)"
+    "$VENV/bin/python" -m pip install --only-binary :all: "kokoro-onnx>=0.4,<1" || echo "(kokoro-onnx did not install - no offline neural voices)"
+    "$VENV/bin/python" -m pip install --only-binary :all: "edge-tts>=7,<8" || echo "(edge-tts did not install - no online voices)"
 fi
 exec "$VENV/bin/python" "$PWD/lectern_app.py" "$@"

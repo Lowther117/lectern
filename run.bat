@@ -18,10 +18,10 @@ if not defined PY (
 )
 "%PY%" -m venv "%VENV%" || (pause & exit /b 1)
 "%VENV%\Scripts\python.exe" -m pip install --upgrade pip --only-binary :all: >nul 2>&1
-"%VENV%\Scripts\python.exe" -m pip install --only-binary :all: pymupdf || echo (PyMuPDF did not install - PDFs will not open; everything else works)
-"%VENV%\Scripts\python.exe" -m pip install --only-binary :all: miniaudio || echo (miniaudio did not install - read aloud uses winsound; online voices off)
-"%VENV%\Scripts\python.exe" -m pip install --only-binary :all: kokoro-onnx || echo (kokoro-onnx did not install - no offline neural voices)
-"%VENV%\Scripts\python.exe" -m pip install --only-binary :all: edge-tts || echo (edge-tts did not install - no online voices)
+"%VENV%\Scripts\python.exe" -m pip install --only-binary :all: "pymupdf>=1.24,<2" || echo (PyMuPDF did not install - PDFs will not open; everything else works)
+"%VENV%\Scripts\python.exe" -m pip install --only-binary :all: "miniaudio>=1.59,<2" || echo (miniaudio did not install - read aloud uses winsound; online voices off)
+"%VENV%\Scripts\python.exe" -m pip install --only-binary :all: "kokoro-onnx>=0.4,<1" || echo (kokoro-onnx did not install - no offline neural voices)
+"%VENV%\Scripts\python.exe" -m pip install --only-binary :all: "edge-tts>=7,<8" || echo (edge-tts did not install - no online voices)
 
 :run
 start "" "%VENV%\Scripts\pythonw.exe" "%~dp0lectern_app.py" %*

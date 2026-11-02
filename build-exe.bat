@@ -33,7 +33,10 @@ set "VPY=%VENV%\Scripts\python.exe"
 "%VPY%" -m pip install --upgrade pip --only-binary :all: >> "%LOG%" 2>&1
 
 echo [3/5] Installing PyInstaller, PyMuPDF (PDF pages) and the voices...
-"%VPY%" -m pip install --only-binary :all: pyinstaller >> "%LOG%" 2>&1 || goto :fail
+"%VPY%" -m pip install --only-binary :all: "pyinstaller>=6.11,<7" >> "%LOG%" 2>&1 || goto :fail
+rem Every package gets a floor (oldest tested) and a ceiling at the next major
+rem version, so a new major is opted into after a test build rather than found
+rem by a routine rebuild - PyMuPDF 2.0 broke two builds that way (Nov 2026).
 rem PyMuPDF 2.0 pulls in pymupdf-layout (its own ONNX models and runtime bits).
 rem Loaded in the same process as kokoro-onnx's onnxruntime it dies with an
 rem access violation - PyInstaller's dependency scan imports every package in
@@ -46,9 +49,9 @@ rem build. onnxruntime itself stays - the voices need it.
 rem Read aloud: miniaudio = sound output + MP3 decode; kokoro-onnx = offline neural
 rem voices (needs Python 3.10-3.13); edge-tts = Microsoft's online voices. All
 rem optional - the app lists whatever installed, and the Windows voices always work.
-"%VPY%" -m pip install --only-binary :all: miniaudio >> "%LOG%" 2>&1 || echo       (miniaudio did not install - read aloud uses winsound instead; online voices off)
-"%VPY%" -m pip install --only-binary :all: kokoro-onnx >> "%LOG%" 2>&1 || echo       (kokoro-onnx did not install - no offline neural voices)
-"%VPY%" -m pip install --only-binary :all: edge-tts >> "%LOG%" 2>&1 || echo       (edge-tts did not install - no online voices)
+"%VPY%" -m pip install --only-binary :all: "miniaudio>=1.59,<2" >> "%LOG%" 2>&1 || echo       (miniaudio did not install - read aloud uses winsound instead; online voices off)
+"%VPY%" -m pip install --only-binary :all: "kokoro-onnx>=0.4,<1" >> "%LOG%" 2>&1 || echo       (kokoro-onnx did not install - no offline neural voices)
+"%VPY%" -m pip install --only-binary :all: "edge-tts>=7,<8" >> "%LOG%" 2>&1 || echo       (edge-tts did not install - no online voices)
 set "EXTRA="
 for /f "usebackq delims=" %%F in (`"%VPY%" build_flags.py`) do set "EXTRA=%%F"
 echo       optional packages:
