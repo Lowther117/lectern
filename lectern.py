@@ -105,7 +105,7 @@ def downloads_dir():
 
 DEFAULTS = {
     "save_dir": "",
-    "theme": "phosphor",
+    "theme": "glass",
     "dark": True,
     "font_size": 14,
     "page_zoom": 1.0,
