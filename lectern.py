@@ -909,7 +909,7 @@ def selftest(with_gui=True):
                     check("gui: pdf text view", app.view == "text")
                 app.destroy_for_test()
                 root.destroy()
-                check("gui: builds in all three themes", True)
+                check("gui: builds in all four themes", True)
             except tk.TclError as ex:
                 lines.append(f"  [skip] GUI not tested: no display ({ex})")
             except Exception:
