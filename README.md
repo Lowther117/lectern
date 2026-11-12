@@ -32,8 +32,9 @@ to the .app.
    outline or pages (PDF); click one to jump.
 3. **▶ Read** starts from the top, or from any word you click. While it is
    reading, clicking a word jumps there. ■ stops; ⏮ ⏭ step a sentence.
-4. **Voice** - everything installed is listed, adult female UK and US English
-   voices only (a voice saved before that falls back to the engine's default):
+4. **Voice** - everything installed is listed: adult UK and US English voices,
+   male and female, clearest first; the novelty and "character" voices are never
+   offered (a voice saved before that falls back to the engine's default):
    *Kokoro* - offline neural voices, the best sounding, British and American.
    `kokoro-onnx` (Python 3.10-3.13) plus ~140 MB of model files in
    `%LOCALAPPDATA%\ReadAloud\models` / `~/Library/Application
@@ -41,7 +42,7 @@ to the .app.
    them, and the Voice list offers the download if they are missing.
    *Online* - Microsoft's neural voices through `edge-tts`; needs the
    internet, gives exact word timing. *Fetch the full online voice list…*
-   adds any newer female en-GB / en-US ones.
+   adds any newer en-GB / en-US ones.
    *System* - Windows SAPI voices or macOS `say` voices. Always there.
 5. **Speed** 0.5×-3× of the voice's natural rate (online voices top out at 2×).
 6. **Audio** off turns the same controls into a silent speed-reader: the

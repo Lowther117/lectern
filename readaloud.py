@@ -75,27 +75,38 @@ KOKORO_LANG = {"a": "en-us", "b": "en-gb", "e": "es", "f": "fr-fr", "h": "hi", "
                "j": "ja", "p": "pt-br", "z": "cmn"}
 KOKORO_LANG_LABEL = {"a": "American", "b": "British", "e": "Spanish", "f": "French", "h": "Hindi",
                      "i": "Italian", "j": "Japanese", "p": "Portuguese", "z": "Mandarin"}
-# Voice policy: only female voices speaking UK or US English are offered, by every engine.
+# Voice policy: UK and US English voices, male and female, by every engine - the clearest first,
+# and nothing comic, sung, robotic-on-purpose or "character": the point is to be understood at speed.
 VOICE_LOCALES = ("en-GB", "en-US")
-KOKORO_VOICE_PREFIXES = ("bf", "af")      # b = British, a = American; f = female
-KOKORO_DEFAULT_VOICES = ["bf_emma", "bf_isabella", "bf_alice", "bf_lily",
-                         "af_heart", "af_bella", "af_sarah", "af_nicole", "af_sky"]
+KOKORO_VOICE_PREFIXES = ("bf", "bm", "af", "am")      # b = British, a = American; f/m = female/male
+# in order of clarity (the Kokoro voice grades), British first; am_santa is a novelty voice and is left out
+KOKORO_DEFAULT_VOICES = ["bf_emma", "bm_george", "bm_fable", "bf_isabella", "bm_lewis", "bf_alice", "bf_lily", "bm_daniel",
+                         "af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore", "af_sarah", "am_fenrir", "am_michael",
+                         "am_puck", "af_alloy", "af_nova", "af_sky", "am_echo", "am_eric", "am_liam", "am_onyx"]
+KOKORO_EXCLUDE = {"am_santa", "af_jessica", "af_river", "am_adam"}     # novelty, or too indistinct to read with
 EDGE_DEFAULT_VOICES = [
-    ("en-GB-SoniaNeural", "Sonia", "en-GB", "Female"), ("en-GB-LibbyNeural", "Libby", "en-GB", "Female"),
-    ("en-US-AriaNeural", "Aria", "en-US", "Female"),
-    ("en-US-JennyNeural", "Jenny", "en-US", "Female"), ("en-US-EmmaNeural", "Emma", "en-US", "Female"),
-    ("en-US-AvaNeural", "Ava", "en-US", "Female"), ("en-US-MichelleNeural", "Michelle", "en-US", "Female"),
+    ("en-GB-SoniaNeural", "Sonia", "en-GB", "Female"), ("en-GB-RyanNeural", "Ryan", "en-GB", "Male"),
+    ("en-GB-LibbyNeural", "Libby", "en-GB", "Female"), ("en-GB-ThomasNeural", "Thomas", "en-GB", "Male"),
+    ("en-US-AriaNeural", "Aria", "en-US", "Female"), ("en-US-GuyNeural", "Guy", "en-US", "Male"),
+    ("en-US-JennyNeural", "Jenny", "en-US", "Female"), ("en-US-AndrewNeural", "Andrew", "en-US", "Male"),
+    ("en-US-EmmaNeural", "Emma", "en-US", "Female"), ("en-US-BrianNeural", "Brian", "en-US", "Male"),
+    ("en-US-AvaNeural", "Ava", "en-US", "Female"), ("en-US-ChristopherNeural", "Christopher", "en-US", "Male"),
+    ("en-US-MichelleNeural", "Michelle", "en-US", "Female"), ("en-US-EricNeural", "Eric", "en-US", "Male"),
 ]
+# the online voices in order of clarity; anything not named goes after these
+EDGE_ORDER = [sn for sn, _, _, _ in EDGE_DEFAULT_VOICES]
 # Microsoft's child voices - the voice list reports no age, so they are named here and never offered.
 EDGE_CHILD_VOICES = {"en-GB-MaisieNeural", "en-US-AnaNeural"}
 # macOS `say` does not report a voice's sex, so it is asked of the system (_MAC_VOICES_JXA); these
-# names are the fallback if that fails. Novelty voices (sound effects, singing) are never offered.
-MAC_FEMALE_VOICES = {"Samantha", "Allison", "Ava", "Susan", "Vicki", "Victoria", "Kathy", "Zoe", "Nicky",
-                     "Joelle", "Noelle", "Kate", "Serena", "Stephanie", "Martha", "Fiona", "Flo", "Grandma",
-                     "Sandy", "Shelley"}
+# names are the fallback for the label if that fails. Novelty voices (sound effects, singing) and the
+# "character" voices that arrived with macOS 13 (Eddy, Flo, Grandma …) are never offered.
+MAC_FEMALE_VOICES = {"Samantha", "Allison", "Ava", "Susan", "Vicki", "Victoria", "Zoe", "Nicky",
+                     "Joelle", "Noelle", "Kate", "Serena", "Stephanie", "Martha", "Fiona", "Karen", "Moira", "Tessa"}
+MAC_MALE_VOICES = {"Daniel", "Oliver", "Jamie", "Alex", "Tom", "Evan", "Nathan", "Aaron", "Arthur", "Lee", "Rishi"}
 MAC_NOVELTY_VOICES = {"Albert", "Bad News", "Bahh", "Bells", "Boing", "Bubbles", "Cellos", "Good News", "Jester",
                       "Organ", "Pipe Organ", "Superstar", "Trinoids", "Whisper", "Wobble", "Zarvox", "Deranged",
-                      "Hysterical"}
+                      "Hysterical", "Fred", "Junior", "Kathy", "Ralph", "Eddy", "Flo", "Grandma", "Grandpa", "Reed",
+                      "Rocko", "Sandy", "Shelley"}
 
 SETTINGS_DEFAULTS = {
     "tts_voice": "",           # "engine:voice id"; blank = best available
@@ -593,7 +604,8 @@ class KokoroEngine(Engine):
         ids = list(KOKORO_DEFAULT_VOICES)
         if self._k is not None:
             try:
-                extra = [v for v in self._k.get_voices() if v not in ids and v[:2] in KOKORO_VOICE_PREFIXES]
+                extra = [v for v in self._k.get_voices() if v not in ids and v[:2] in KOKORO_VOICE_PREFIXES
+                         and v not in KOKORO_EXCLUDE]
                 ids += sorted(extra)
             except Exception:
                 pass
@@ -603,7 +615,7 @@ class KokoroEngine(Engine):
         return "bf_emma"
 
     def allowed(self, vid):
-        return vid[:2] in KOKORO_VOICE_PREFIXES
+        return vid[:2] in KOKORO_VOICE_PREFIXES and vid not in KOKORO_EXCLUDE
 
     def _load(self):
         if _KOKORO["model"] is None:
@@ -680,11 +692,13 @@ class EdgeEngine(Engine):
             for v in data:
                 sn = v.get("ShortName", "")
                 loc = v.get("Locale", "")
-                if not sn or loc not in VOICE_LOCALES or v.get("Gender") != "Female" or sn in EDGE_CHILD_VOICES:
+                if not sn or loc not in VOICE_LOCALES or sn in EDGE_CHILD_VOICES or "Multilingual" in sn:
                     continue
                 name = sn.split("-")[-1].replace("Neural", "")
-                out.append((sn, f"{name} ({loc} female)"))
-            out.sort(key=lambda x: (VOICE_LOCALES.index(x[0][:5]) if x[0][:5] in VOICE_LOCALES else 9, x[1]))
+                sex = (v.get("Gender") or "").lower()
+                out.append((sn, f"{name} ({loc}{' ' + sex if sex else ''})"))
+            out.sort(key=lambda x: (VOICE_LOCALES.index(x[0][:5]) if x[0][:5] in VOICE_LOCALES else 9,
+                                    EDGE_ORDER.index(x[0]) if x[0] in EDGE_ORDER else 99, x[1]))
             if out:
                 return out
         except Exception:
@@ -885,9 +899,9 @@ class SystemEngine(Engine):
         return sys.platform == "darwin" and bool(re.search(r"\((Enhanced|Premium)\)", vid or ""))
 
     def voices(self, fetch=True):
-        """The female UK/US voices this system offers - and while a neural engine (Kokoro or the
-        online voices) is available, only the natural-sounding ones among them: the robotic
-        voices are kept for when there is nothing better."""
+        """The UK/US English voices this system offers, male and female - and while a neural engine
+        (Kokoro or the online voices) is available, only the natural-sounding ones among them: the
+        robotic voices are kept for when there is nothing better."""
         full = self._os_voices(fetch)
         if neural_engine_available():
             return [x for x in full if self.is_natural(x[0])]
@@ -910,9 +924,9 @@ class SystemEngine(Engine):
                                    startupinfo=kw.get("startupinfo"), creationflags=kw.get("creationflags", 0))
                 for line in p.stdout.splitlines():
                     parts = line.strip().split("|")
-                    if len(parts) >= 3 and parts[0] and parts[1] == "Female" and parts[2] in VOICE_LOCALES:
+                    if len(parts) >= 3 and parts[0] and parts[2] in VOICE_LOCALES:
                         out.append((parts[0], f"{parts[0].replace('Microsoft ', '').replace(' Desktop', '')} "
-                                              f"({parts[2]} female)"))
+                                              f"({parts[2]} {parts[1].lower()})".replace(" )", ")")))
                 out.sort(key=lambda x: (VOICE_LOCALES.index(x[1].split("(")[-1][:5]), x[0]))
             elif sys.platform == "darwin":
                 sexes = self._mac_voice_sexes()
@@ -927,10 +941,12 @@ class SystemEngine(Engine):
                     base = re.sub(r"\s*\(.*$", "", name)
                     if not loc.startswith(("en_GB", "en_US")) or base in MAC_NOVELTY_VOICES:
                         continue
-                    sex = sexes.get(name) or sexes.get(base)      # the system may call "Flo (English (UK))" just "Flo"
-                    if (sex.endswith("Female") if sex else base in MAC_FEMALE_VOICES):
-                        out.append((name, f"{name} ({loc[:5].replace('_', '-')} female)"))
-                out.sort(key=lambda x: (not x[1].endswith("(en-GB female)"), x[0]))
+                    sex = sexes.get(name) or sexes.get(base)      # the system may call "Kate (Enhanced)" just "Kate"
+                    label = ("female" if sex.endswith("Female") else "male" if sex.endswith("Male") else "") if sex \
+                        else ("female" if base in MAC_FEMALE_VOICES else "male" if base in MAC_MALE_VOICES else "")
+                    out.append((name, f"{name} ({loc[:5].replace('_', '-')}{' ' + label if label else ''})"))
+                # British first, then the enhanced / premium builds of a voice before its compact one
+                out.sort(key=lambda x: ("(en-GB" not in x[1], not re.search(r"\((Enhanced|Premium)\)", x[0]), x[0]))
             else:
                 exe = shutil.which("espeak-ng") or shutil.which("espeak")
                 p = subprocess.run([exe, "--voices=en"], capture_output=True, text=True, timeout=30)
@@ -938,6 +954,7 @@ class SystemEngine(Engine):
                     parts = line.split()
                     if len(parts) >= 4 and parts[1] in ("en-gb", "en-us"):
                         out.append((parts[1] + "+f3", f"{parts[3]} ({parts[1]} female)"))   # +f3: female variant
+                        out.append((parts[1] + "+m3", f"{parts[3]} ({parts[1]} male)"))     # +m3: male variant
         except Exception as e:
             self.log(f"system voices: {e!r}")
         if not out:
